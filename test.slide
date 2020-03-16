@@ -1,0 +1,44 @@
+:# This is a test presentation.
+:# It has comments!
+
+:bg 1.0 1.0 1.0
+
+:begin NEXT_SLIDE
+:    vfill
+:    point
+:end
+
+:begin HEADER
+:    margin 0.05
+:    vspace 0.05
+:    fg 0.4 0.5 0.9
+:    font fonts/PlayfairDisplay-Regular.otf 24
+:end
+
+:begin BODY
+:    margin 0.1
+:    fg 0.0 0.0 0.0
+:    font fonts/PlayfairDisplay-Regular.otf 14
+:end
+
+:use HEADER
+Graph Automata
+
+:use BODY
+- I wrote this presentation using a slide-show program that I wrote myself!
+
+- I think it's pretty cool! Do you like it?
+:use NEXT_SLIDE
+
+:use HEADER
+Graph Automata (cont. 1)
+
+:use BODY
+- This is on the slide with the title "Graph Automata (cont. 1)"
+:use NEXT_SLIDE
+
+:use HEADER
+Graph Automata (cont. 2)
+
+:use BODY
+- This is on the slide with the title "Graph Automata (cont. 2)"

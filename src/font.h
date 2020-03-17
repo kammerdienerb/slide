@@ -40,6 +40,8 @@ FT_Library ft_lib;
 
 int           init_font(void);
 font_cache_t *get_or_load_font(const char *name, u32 size, SDL_Renderer *sdl_ren);
-font_entry_t *get_glyph(font_cache_t *font, char_code_t ch);
+char_code_t   get_char_code(const char *str, int *n_bytes);
+font_entry_t *get_glyph(font_cache_t *font, char_code_t ch, SDL_Renderer *sdl_ren);
+void          set_font_color(font_cache_t *font, int r, int g, int b);
 
 #endif

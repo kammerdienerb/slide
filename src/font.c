@@ -3,6 +3,8 @@
 int init_font(void) {
     int err;
 
+    setlocale(LC_ALL, "en_US.utf8");
+
     font_map = tree_make_c(font_name_t, font_cache_t, strcmp);
 
     err = FT_Init_FreeType(&ft_lib);
@@ -22,7 +24,7 @@ font_cache_t *get_or_load_font(const char *name, u32 size, SDL_Renderer *sdl_ren
     font_cache_t  cache;
     FT_Bitmap     b;
     FT_GlyphSlot  g;
-    u32          *pixels, max_w, max_h, num_pixels, p, num_glyph_pixels, r, c, max_glyph_pixels;
+    u32          *pixels, max_w, max_h, num_pixels, p, r, c, max_glyph_pixels;
     int           i, j, k, l, m, x, y;
     SDL_Rect      rect;
 
@@ -34,6 +36,8 @@ font_cache_t *get_or_load_font(const char *name, u32 size, SDL_Renderer *sdl_ren
     if (tree_it_good(it)) {
         return &tree_it_val(it);
     }
+
+    cache.non_ascii_entry_map = tree_make(char_code_t, font_entry_t);
 
     err = FT_New_Face(ft_lib, name, 0, &cache.ft_face);
 
@@ -89,20 +93,9 @@ font_cache_t *get_or_load_font(const char *name, u32 size, SDL_Renderer *sdl_ren
 
             c = i * 16 + j;
 
-            if (!isprint(c)) {
-                for (k = 0; k < max_h; k += 1) {
-                    for (l = 0; l < max_w; l += 1) {
-                        m = k * max_w + l;
-                        pixels[p + m] = 0x00000000;
-                    }
-                }
-                goto next;
-            }
-
             FT_Load_Char(cache.ft_face, c, FT_LOAD_RENDER);
             g                = cache.ft_face->glyph;
             b                = g->bitmap;
-            num_glyph_pixels = b.width * b.rows;
 
             cache.ascii_entries[c].texture       = cache.ascii_texture;
             cache.ascii_entries[c].x             = x;
@@ -139,11 +132,10 @@ font_cache_t *get_or_load_font(const char *name, u32 size, SDL_Renderer *sdl_ren
                 for (l = 0; l < max_w; l += 1) {
                     p = P();
                     pixels[p] = 0x00000000;
-             }
+                }
             }
 
 #undef P
-next:;
         }
     }
 
@@ -155,10 +147,113 @@ next:;
     return &tree_it_val(it);
 }
 
-font_entry_t *get_glyph(font_cache_t *font, char_code_t ch) {
+font_entry_t *get_glyph(font_cache_t *font, char_code_t ch, SDL_Renderer *sdl_ren) {
+    font_entry_map_it  it;
+    FT_Bitmap          b;
+    FT_GlyphSlot       g;
+    u32               *pixels, num_pixels;
+    int                i, j, m, r;
+    SDL_Rect           rect;
+    font_entry_t       entry;
+
     if (ch < 256) {
         return &font->ascii_entries[ch];
     }
 
-    return NULL;
+    it = tree_lookup(font->non_ascii_entry_map, ch);
+
+    if (tree_it_good(it)) {
+        return &tree_it_val(it);
+    }
+
+    memset(&entry, 0, sizeof(entry));
+
+    FT_Load_Char(font->ft_face, ch, FT_LOAD_RENDER);
+    g = font->ft_face->glyph;
+    b = g->bitmap;
+
+    num_pixels = b.width * b.rows;
+
+    rect.x = rect.y = 0;
+    rect.w = b.width;
+    rect.h = b.rows;
+
+    pixels = (u32*)malloc(sizeof(u32) * num_pixels);
+
+    memset(pixels, 0, sizeof(u32) * num_pixels);
+    entry.texture = SDL_CreateTexture(sdl_ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STATIC, rect.w, rect.h);
+    SDL_SetTextureBlendMode(entry.texture, SDL_BLENDMODE_BLEND);
+
+    entry.x             = rect.x;
+    entry.y             = rect.y;
+    entry.w             = rect.w;
+    entry.h             = rect.h;
+    entry.adjust_x      = g->bitmap_left;
+    entry.adjust_y      = g->bitmap_top;
+    entry.pen_advance_x = g->advance.x >> 6;
+    entry.pen_advance_y = g->advance.y >> 6;
+
+
+    for (i = 0; i < b.rows; i += 1) {
+        for (j = 0; j < b.width; j += 1) {
+            m = i * b.width + j;
+            r = b.buffer[m];
+            if (r) {
+                pixels[m] |= r << 24;
+                pixels[m] |= r << 16;
+                pixels[m] |= r << 8;
+                pixels[m] |= r;
+            } else {
+                pixels[m] = 0x00000000;
+            }
+        }
+    }
+
+    SDL_UpdateTexture(entry.texture, &rect, pixels, sizeof(u32) * rect.w);
+    free(pixels);
+
+    it = tree_insert(font->non_ascii_entry_map, ch, entry);
+
+    return &tree_it_val(it);
+}
+
+static const unsigned char _utf8_lens[] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 4, 0
+};
+
+#define G_IS_ASCII(g) (!((g)[0] >> 7))
+
+#define _get_glyph_len(g)                 \
+(likely(G_IS_ASCII(g))                    \
+    ? 1                                   \
+    : (int)(_utf8_lens[(g)[0] >> 3ULL]))
+
+char_code_t get_char_code(const char *str, int *n_bytes) {
+    unsigned char *bytes;
+    wchar_t        wch;
+    char_code_t    char_code;
+
+    bytes = (unsigned char*)str;
+
+    *n_bytes = _get_glyph_len(bytes);
+
+    /* Reset the shift state. */
+    mbtowc(NULL, 0, 0);
+
+    mbtowc(&wch, (const char*)str, *n_bytes);
+
+    char_code = wch;
+
+    return char_code;
+}
+
+void set_font_color(font_cache_t *font, int r, int g, int b) {
+    font_entry_map_it it;
+
+    SDL_SetTextureColorMod(font->ascii_texture, r, g, b);
+
+    tree_traverse(font->non_ascii_entry_map, it) {
+        SDL_SetTextureColorMod(tree_it_val(it).texture, r, g, b);
+    }
 }

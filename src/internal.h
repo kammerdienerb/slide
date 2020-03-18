@@ -39,7 +39,10 @@ fprintf(stderr, "[slide] ERROR: " __VA_ARGS__); \
     exit(1);                                    \
 } while (0)
 
-#define SCREEN_WIDTH  (2880) // ( 2  * 640)
-#define SCREEN_HEIGHT (1800) // ( 2  * 480)
+#define FPS_TO_MS(fps)   ((1000) * (1.0 / (float)(fps)))
+#define FPS_CAP_MS       ((u64)(FPS_TO_MS(60)))
+
+#define DEFAULT_RES_W (1440)
+#define DEFAULT_RES_H (1080)
 
 #endif

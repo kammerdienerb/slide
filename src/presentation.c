@@ -1,5 +1,4 @@
 #include "presentation.h"
-#include "font.h"
 
 static array_t sh_split(char *s) {
     array_t  r;
@@ -216,6 +215,19 @@ DEF_CMD(speed) {
     pres->speed = F;
 }
 
+DEF_CMD(resolution) {
+    GET_I(1);
+    if (I <= 0) {
+        BUILD_ERR("resolution values must be greater than zero\n");
+    }
+    pres->w = I;
+    GET_I(2);
+    if (I <= 0) {
+        BUILD_ERR("resolution values must be greater than zero\n");
+    }
+    pres->h = I;
+}
+
 DEF_CMD(begin) {
     macro_map_it   it;
     char         **line_it;
@@ -325,17 +337,17 @@ DEF_CMD(fgx) {
 
 DEF_CMD(lmargin) {
     GET_F(1); LIMIT(F);
-    ctx->l_margin = F * SCREEN_WIDTH;
+    ctx->l_margin = F * pres->w;
 }
 
 DEF_CMD(rmargin) {
     GET_F(1); LIMIT(F);
-    ctx->r_margin = F * SCREEN_WIDTH;
+    ctx->r_margin = F * pres->w;
 }
 
 DEF_CMD(margin) {
     GET_F(1); LIMIT(F);
-    ctx->l_margin = ctx->r_margin = F * SCREEN_WIDTH;
+    ctx->l_margin = ctx->r_margin = F * pres->w;
 }
 
 DEF_CMD(ljust) {
@@ -355,7 +367,7 @@ DEF_CMD(vspace) {
 
     ctx->elem.kind = PRES_VSPACE;
     GET_F(1); LIMIT(F);
-    ctx->elem.y = F * SCREEN_HEIGHT;
+    ctx->elem.y = F * pres->h;
 
     commit_element(pres, ctx);
 }
@@ -381,19 +393,30 @@ DEF_CMD(bullet) {
     ctx->elem.text  = array_make(char);
 }
 
-static image_path_t ensure_image(pres_t *pres, build_ctx_t *ctx, const char *path) {
-    image_map_it   it;
-    sdl_texture_t  texture;
-    int            want_fmt, orig_fmt;
-    int            w, h, depth, pitch, pixel_format;
-    unsigned char *image_data;
-    SDL_Surface   *surface;
+typedef struct {
+    pres_t        *pres;
+    build_ctx_t   *ctx;
+    char          *path;
+    sdl_texture_t *texture_ptr;
+} async_load_image_payload_t;
 
-    it = tree_lookup(pres->images, (char*)path);
+static void async_load_image(void *arg) {
+    async_load_image_payload_t *payload;
+    pres_t                     *pres;
+    build_ctx_t                *ctx;
+    char                       *path;
+    sdl_texture_t              *texture_ptr;
+    int                         want_fmt, orig_fmt;
+    int                         w, h, depth, pitch, pixel_format;
+    unsigned char              *image_data;
+    SDL_Surface                *surface;
 
-    if (tree_it_good(it)) {
-        return tree_it_key(it);
-    }
+    payload = arg;
+
+    pres        = payload->pres;
+    ctx         = payload->ctx;
+    path        = payload->path;
+    texture_ptr = payload->texture_ptr;
 
     want_fmt   = STBI_rgb_alpha;
     image_data = stbi_load(path, &w, &h, &orig_fmt, want_fmt);
@@ -405,14 +428,38 @@ static image_path_t ensure_image(pres_t *pres, build_ctx_t *ctx, const char *pat
     pitch        = 4 * w;
     pixel_format = SDL_PIXELFORMAT_RGBA32;
 
-    surface = SDL_CreateRGBSurfaceWithFormatFrom((void*)image_data, w, h,
-                                                 depth, pitch, pixel_format);
-    texture = SDL_CreateTextureFromSurface(pres->sdl_ren, surface);
+    pthread_mutex_lock(&pres->images_mutex);
+        surface      = SDL_CreateRGBSurfaceWithFormatFrom((void*)image_data, w, h,
+                                                          depth, pitch, pixel_format);
+        *texture_ptr = SDL_CreateTextureFromSurface(pres->sdl_ren, surface);
+        SDL_FreeSurface(surface);
+    pthread_mutex_unlock(&pres->images_mutex);
 
-    SDL_FreeSurface(surface);
     stbi_image_free(image_data);
 
-    it = tree_insert(pres->images, strdup(path), texture);
+    free(arg);
+}
+
+static image_path_t ensure_image(pres_t *pres, build_ctx_t *ctx, const char *path) {
+    image_map_it                it;
+    async_load_image_payload_t *payload;
+
+    it = tree_lookup(pres->images, (char*)path);
+
+    if (tree_it_good(it)) {
+        return tree_it_key(it);
+    }
+
+    it = tree_insert(pres->images, strdup(path), NULL);
+
+    payload = malloc(sizeof(*payload));
+
+    payload->pres        = pres;
+    payload->ctx         = ctx;
+    payload->path        = tree_it_key(it);
+    payload->texture_ptr = &tree_it_val(it);
+
+    tp_add_task(pres->tp, async_load_image, payload);
 
     return tree_it_key(it);
 }
@@ -425,9 +472,9 @@ DEF_CMD(image) {
     ctx->elem.image = ensure_image(pres, ctx, S);
 
     GET_F(2); LIMIT(F);
-    ctx->elem.w = F * SCREEN_WIDTH;
+    ctx->elem.w = F * pres->w;
     GET_F(3); LIMIT(F);
-    ctx->elem.h = F * SCREEN_HEIGHT;
+    ctx->elem.h = F * pres->h;
 
     commit_element(pres, ctx);
 }
@@ -437,9 +484,9 @@ DEF_CMD(translate) {
 
     ctx->elem.kind = PRES_TRANSLATE;
     GET_F(1);
-    ctx->elem.x = F * SCREEN_WIDTH;
+    ctx->elem.x = F * pres->w;
     GET_F(2);
-    ctx->elem.y = F * SCREEN_HEIGHT;
+    ctx->elem.y = F * pres->h;
 
     commit_element(pres, ctx);
 }
@@ -461,29 +508,30 @@ do {                              \
     cmd = *(char**)array_item(words, 0);
 
 
-    if      (strcmp(cmd, "point")     == 0) { CALL_CMD(point);     }
-    else if (strcmp(cmd, "speed")     == 0) { CALL_CMD(speed);     }
-    else if (strcmp(cmd, "begin")     == 0) { CALL_CMD(begin);     }
-    else if (strcmp(cmd, "end")       == 0) { CALL_CMD(end);       }
-    else if (strcmp(cmd, "use")       == 0) { CALL_CMD(use);       }
-    else if (strcmp(cmd, "include")   == 0) { CALL_CMD(include);   }
-    else if (strcmp(cmd, "font")      == 0) { CALL_CMD(font);      }
-    else if (strcmp(cmd, "size")      == 0) { CALL_CMD(size);      }
-    else if (strcmp(cmd, "bg")        == 0) { CALL_CMD(bg);        }
-    else if (strcmp(cmd, "bgx")       == 0) { CALL_CMD(bgx);       }
-    else if (strcmp(cmd, "fg")        == 0) { CALL_CMD(fg);        }
-    else if (strcmp(cmd, "fgx")       == 0) { CALL_CMD(fgx);       }
-    else if (strcmp(cmd, "margin")    == 0) { CALL_CMD(margin);    }
-    else if (strcmp(cmd, "lmargin")   == 0) { CALL_CMD(lmargin);   }
-    else if (strcmp(cmd, "rmargin")   == 0) { CALL_CMD(rmargin);   }
-    else if (strcmp(cmd, "ljust")     == 0) { CALL_CMD(ljust);     }
-    else if (strcmp(cmd, "cjust")     == 0) { CALL_CMD(cjust);     }
-    else if (strcmp(cmd, "rjust")     == 0) { CALL_CMD(rjust);     }
-    else if (strcmp(cmd, "vspace")    == 0) { CALL_CMD(vspace);    }
-    else if (strcmp(cmd, "vfill")     == 0) { CALL_CMD(vfill);     }
-    else if (strcmp(cmd, "bullet")    == 0) { CALL_CMD(bullet);    }
-    else if (strcmp(cmd, "image")     == 0) { CALL_CMD(image);     }
-    else if (strcmp(cmd, "translate") == 0) { CALL_CMD(translate); }
+    if      (strcmp(cmd, "point")      == 0) { CALL_CMD(point);      }
+    else if (strcmp(cmd, "speed")      == 0) { CALL_CMD(speed);      }
+    else if (strcmp(cmd, "resolution") == 0) { CALL_CMD(resolution); }
+    else if (strcmp(cmd, "begin")      == 0) { CALL_CMD(begin);      }
+    else if (strcmp(cmd, "end")        == 0) { CALL_CMD(end);        }
+    else if (strcmp(cmd, "use")        == 0) { CALL_CMD(use);        }
+    else if (strcmp(cmd, "include")    == 0) { CALL_CMD(include);    }
+    else if (strcmp(cmd, "font")       == 0) { CALL_CMD(font);       }
+    else if (strcmp(cmd, "size")       == 0) { CALL_CMD(size);       }
+    else if (strcmp(cmd, "bg")         == 0) { CALL_CMD(bg);         }
+    else if (strcmp(cmd, "bgx")        == 0) { CALL_CMD(bgx);        }
+    else if (strcmp(cmd, "fg")         == 0) { CALL_CMD(fg);         }
+    else if (strcmp(cmd, "fgx")        == 0) { CALL_CMD(fgx);        }
+    else if (strcmp(cmd, "margin")     == 0) { CALL_CMD(margin);     }
+    else if (strcmp(cmd, "lmargin")    == 0) { CALL_CMD(lmargin);    }
+    else if (strcmp(cmd, "rmargin")    == 0) { CALL_CMD(rmargin);    }
+    else if (strcmp(cmd, "ljust")      == 0) { CALL_CMD(ljust);      }
+    else if (strcmp(cmd, "cjust")      == 0) { CALL_CMD(cjust);      }
+    else if (strcmp(cmd, "rjust")      == 0) { CALL_CMD(rjust);      }
+    else if (strcmp(cmd, "vspace")     == 0) { CALL_CMD(vspace);     }
+    else if (strcmp(cmd, "vfill")      == 0) { CALL_CMD(vfill);      }
+    else if (strcmp(cmd, "bullet")     == 0) { CALL_CMD(bullet);     }
+    else if (strcmp(cmd, "image")      == 0) { CALL_CMD(image);      }
+    else if (strcmp(cmd, "translate")  == 0) { CALL_CMD(translate);  }
     else {
         ctx->cmd = cmd;
         BUILD_ERR("unknown command '%s'\n", cmd);
@@ -613,6 +661,11 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
     pres_t        pres;
     build_ctx_t   ctx;
 
+    memset(&pres, 0, sizeof(pres));
+
+    pres.tp            = tp_make(8);
+    pthread_mutex_init(&pres.images_mutex, NULL);
+
     pres.sdl_ren       = sdl_ren;
     pres.elements      = array_make(pres_elem_t);
     pres.fonts         = array_make(char*);
@@ -620,6 +673,8 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
     pres.collect_lines = NULL;
     pres.r             = pres.g = pres.b = 255;
     pres.speed         = 4.0;
+    pres.w             = DEFAULT_RES_W;
+    pres.h             = DEFAULT_RES_H;
 
     pres.bullet_strings[0] = "• ";
     pres.bullet_strings[1] = "› ";
@@ -641,6 +696,10 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
     if (!do_file(&pres, &ctx, path)) {
         ERR("could not open presentation file '%s'\n", path);
     }
+
+    tp_wait(pres.tp);
+    tp_stop(pres.tp, TP_GRACEFUL);
+    tp_free(pres.tp);
 
     return pres;
 }
@@ -690,4 +749,391 @@ sdl_texture_t pres_get_image_texture(pres_t *pres, const char *image) {
     }
 
     return NULL;
+}
+
+
+static void clear_and_draw_bg(pres_t *pres) {
+    SDL_Rect r;
+    int      sum;
+
+    sum = pres->r + pres->g + pres->g;
+    if (sum > ((3 * 255) / 2)) {
+        SDL_SetRenderDrawColor(pres->sdl_ren, 0, 0, 0, 255);
+    } else {
+        SDL_SetRenderDrawColor(pres->sdl_ren, 255, 255, 255, 255);
+    }
+    SDL_RenderClear(pres->sdl_ren);
+
+    r.x = r.y = 0;
+    r.w = pres->w;
+    r.h = pres->h;
+
+    SDL_SetRenderDrawColor(pres->sdl_ren,
+                           pres->r,
+                           pres->g,
+                           pres->b,
+                           255);
+
+    SDL_RenderFillRect(pres->sdl_ren, &r);
+
+    SDL_SetRenderDrawColor(pres->sdl_ren,
+                           255 - pres->r,
+                           255 - pres->g,
+                           255 - pres->b,
+                           255);
+}
+
+static array_t get_wrap_points(pres_t *pres, const unsigned char *bytes, int l_margin, int r_margin, array_t *line_widths) {
+    int           len;
+    array_t       wrap_points;
+    int           total_width;
+    int           line_width;
+    int           i, j;
+    int           last_space;
+    font_entry_t *entry;
+    char_code_t   code;
+    int           n_bytes_i, n_bytes_j;
+    int           space_width;
+    font_cache_t *font;
+
+    font = pres->cur_font;
+
+    code         = get_char_code(" ", &n_bytes_i);
+    entry        = get_glyph(font, code, pres->sdl_ren);
+    space_width  = entry->pen_advance_x;
+
+    len = strlen((const char *)bytes);
+
+    wrap_points  = array_make(int);
+    *line_widths = array_make(int);
+    total_width  = l_margin;
+    last_space   = -1;
+
+    for (i = 0; i < len;) {
+        code  = get_char_code(((const char *)bytes) + i, &n_bytes_i);
+        entry = get_glyph(font, code, pres->sdl_ren);
+
+        total_width += entry->pen_advance_x;
+
+        if (total_width > pres->w - r_margin) {
+            line_width  = total_width;
+            total_width = l_margin;
+
+            if (last_space != -1) {
+                for (j = last_space + 1; j <= i;) {
+                    code         = get_char_code(((const char *)bytes) + j, &n_bytes_j);
+                    entry        = get_glyph(font, code, pres->sdl_ren);
+                    total_width += entry->pen_advance_x;
+                    j += n_bytes_j;
+                }
+
+                line_width -= total_width;
+                line_width -= space_width;
+                array_push(*line_widths, line_width);
+                array_push(wrap_points, last_space);
+                last_space = -1;
+            }
+        }
+
+        if (isspace(bytes[i])) { last_space = i; }
+
+        i += n_bytes_i;
+    }
+
+    if (total_width > pres->w - r_margin) {
+        line_width  = total_width;
+        total_width = l_margin;
+
+        if (last_space != -1) {
+            for (j = last_space + 1; j <= i; j += 1) {
+                entry        = get_glyph(font, bytes[j], pres->sdl_ren);
+                total_width += entry->pen_advance_x;
+            }
+
+            line_width -= total_width;
+            array_push(*line_widths, line_width);
+            array_push(wrap_points, last_space);
+        }
+    }
+
+    line_width = total_width - l_margin;
+    array_push(*line_widths, line_width);
+
+    return wrap_points;
+}
+
+void draw_string(pres_t *pres, const char *str, int l_margin, int r_margin, int justification) {
+    int            _x, _y;
+    int            len;
+    int            i;
+    font_entry_t  *entry;
+    SDL_Rect       srect,
+                   drect;
+    array_t        wrap_points;
+    array_t        line_widths;
+    int           *wrap_it;
+    int            wrapped;
+    unsigned char *bytes;
+    char_code_t    code;
+    int            n_bytes;
+    int            line;
+    font_cache_t  *font;
+
+    font = pres->cur_font;
+    if (!font) { return; }
+
+    _x = pres->draw_x + l_margin;
+    _y = pres->draw_y;
+
+    (void)_y;
+
+    pres->draw_x  = _x;
+    pres->draw_y += font->line_height;
+
+    if (!str) { return; }
+
+    bytes = (unsigned char*)str;
+
+    len = strlen(str);
+
+    wrap_points = get_wrap_points(pres, bytes, l_margin, r_margin, &line_widths);
+    line        = 0;
+
+    switch (justification) {
+        case JUST_L: break;
+        case JUST_R:
+            pres->draw_x += (pres->w - l_margin - r_margin) - *(int*)array_item(line_widths, line);
+            break;
+        case JUST_C:
+            pres->draw_x += ((pres->w - l_margin - r_margin) - *(int*)array_item(line_widths, line)) / 2;
+            break;
+    }
+
+    for (i = 0; i < len;) {
+        wrapped = 0;
+
+        code  = get_char_code(str + i, &n_bytes);
+        entry = get_glyph(font, code, pres->sdl_ren);
+
+        srect.x = entry->x;
+        srect.y = entry->y;
+        srect.w = entry->w;
+        srect.h = entry->h;
+
+        drect.x = pres->draw_x + entry->adjust_x;
+        drect.y = pres->draw_y - entry->adjust_y;
+        drect.w = entry->w;
+        drect.h = entry->h;
+
+        array_traverse(wrap_points, wrap_it) {
+            if (*wrap_it == i) {
+                line   += 1;
+                pres->draw_y += 1.25 * font->line_height;
+                pres->draw_x  = _x;
+
+                switch (justification) {
+                    case JUST_L: break;
+                    case JUST_R:
+                        pres->draw_x += (pres->w - l_margin - r_margin) - *(int*)array_item(line_widths, line);
+                        break;
+                    case JUST_C:
+                        pres->draw_x += ((pres->w - l_margin - r_margin) - *(int*)array_item(line_widths, line)) / 2;
+                        break;
+                }
+
+                wrapped = 1;
+                break;
+            }
+        }
+
+        SDL_RenderCopy(pres->sdl_ren, entry->texture, &srect, &drect);
+
+        if (!wrapped) {
+            pres->draw_x += entry->pen_advance_x;
+        }
+        pres->draw_y += entry->pen_advance_y;
+
+        i += n_bytes;
+    }
+
+    array_free(line_widths);
+    array_free(wrap_points);
+}
+
+static void draw_para(pres_t *pres, pres_elem_t *elem) {
+    pres->cur_font = get_or_load_font(
+                        pres_get_font_name_by_id(pres, elem->font_id),
+                        elem->font_size, pres->sdl_ren);
+
+    set_font_color(pres->cur_font, elem->r, elem->g, elem->b);
+
+    draw_string(pres,
+                array_data(elem->text),
+                elem->l_margin, elem->r_margin, elem->justification);
+
+    pres->is_translating = 0;
+}
+
+static void draw_bullet(pres_t *pres, pres_elem_t *elem) {
+    int save_draw_x,
+        save_draw_y;
+    int new_l_margin;
+
+    pres->cur_font = get_or_load_font(
+                        pres_get_font_name_by_id(pres, elem->font_id),
+                        elem->font_size, pres->sdl_ren);
+
+    set_font_color(pres->cur_font, elem->r, elem->g, elem->b);
+
+    save_draw_x = pres->draw_x;
+    save_draw_y = pres->draw_y;
+
+    new_l_margin =   elem->l_margin
+                   + ((0.05 * (elem->level - 1)) * pres->w);
+
+    draw_string(pres,
+                pres->bullet_strings[elem->level - 1],
+                new_l_margin, elem->r_margin, JUST_L);
+
+    new_l_margin = pres->draw_x - save_draw_x;
+    pres->draw_x = save_draw_x;
+    pres->draw_y = save_draw_y;
+
+    draw_string(pres,
+                array_data(elem->text),
+                new_l_margin, elem->r_margin, elem->justification);
+
+    pres->is_translating = 0;
+}
+
+static void draw_break(pres_t *pres, pres_elem_t *elem) {
+    if (pres->cur_font) {
+        pres->draw_y += 1.25 * pres->cur_font->line_height;
+    }
+
+    pres->is_translating = 0;
+}
+
+static void draw_vspace(pres_t *pres, pres_elem_t *elem) {
+    pres->draw_y         += elem->y;
+    pres->is_translating  = 0;
+}
+
+static void draw_vfill(pres_t *pres, pres_elem_t *elem) {
+    pres->draw_y         += pres->h - ((pres->draw_y - pres->view_y) % pres->h);
+    pres->is_translating  = 0;
+}
+
+static void handle_point(pres_t *pres, pres_elem_t *elem) {
+    pres->save_points[pres->n_points]  = -(pres->draw_y - pres->view_y);
+    pres->n_points                    += 1;
+}
+
+static void draw_image(pres_t *pres, pres_elem_t *elem) {
+    sdl_texture_t image_texture;
+    SDL_Rect      drect;
+
+    image_texture = pres_get_image_texture(pres, elem->image);
+
+    drect.x = pres->draw_x;
+    drect.y = pres->draw_y;
+    drect.w = elem->w;
+    drect.h = elem->h;
+
+    SDL_RenderCopy(pres->sdl_ren, image_texture, NULL, &drect);
+
+    pres->draw_y         += drect.h;
+    pres->is_translating  = 0;
+}
+
+static void draw_translate(pres_t *pres, pres_elem_t *elem) {
+    pres->is_translating  = 1;
+    pres->draw_x         += elem->x;
+    pres->draw_y         += elem->y;
+}
+
+static void do_animation(pres_t *pres) {
+    if (pres->is_animating) {
+        if (pres->view_y < pres->dst_view_y) {
+            pres->view_y += pres->speed * FPS_CAP_MS;
+            if (pres->view_y > pres->dst_view_y) {
+                pres->view_y = pres->dst_view_y;
+            }
+        } else if (pres->view_y > pres->dst_view_y) {
+            pres->view_y -= pres->speed * FPS_CAP_MS;
+            if (pres->view_y < pres->dst_view_y) {
+                pres->view_y = pres->dst_view_y;
+            }
+        }
+
+        if (pres->view_y == pres->dst_view_y) {
+            pres->is_animating = 0;
+        }
+    } else {
+        if (pres->n_points != 0) {
+            if (pres->point >= pres->n_points) {
+                pres->point = pres->n_points - 1;
+            }
+
+            if (pres->view_y != pres->save_points[pres->point]) {
+                pres->dst_view_y   = pres->save_points[pres->point];
+                pres->is_animating = 1;
+            }
+        }
+    }
+}
+
+void draw_presentation(pres_t *pres) {
+    pres_elem_t *elem;
+
+    clear_and_draw_bg(pres);
+
+    pres->draw_x   = pres->view_x;
+    pres->draw_y   = pres->view_y;
+    pres->n_points = 0;
+
+    array_traverse(pres->elements, elem) {
+        switch (elem->kind) {
+            case PRES_PARA:      draw_para(pres, elem);      break;
+            case PRES_BULLET:    draw_bullet(pres, elem);    break;
+            case PRES_BREAK:     draw_break(pres, elem);     break;
+            case PRES_VSPACE:    draw_vspace(pres, elem);    break;
+            case PRES_VFILL:     draw_vfill(pres, elem);     break;
+            case PRES_IMAGE:     draw_image(pres, elem);     break;
+            case PRES_TRANSLATE: draw_translate(pres, elem); break;
+            case PRES_POINT:     handle_point(pres, elem);   break;
+        }
+
+        if (!pres->is_translating) { pres->draw_x = 0; }
+    }
+
+    do_animation(pres);
+}
+
+void pres_next_point(pres_t *pres) {
+    if (!pres->is_animating) {
+        pres->point += 1;
+    }
+}
+
+void pres_prev_point(pres_t *pres) {
+    if (!pres->is_animating) {
+        if (pres->point > 0) {
+            pres->point -= 1;
+        }
+    }
+}
+
+void pres_first_point(pres_t *pres) {
+    if (!pres->is_animating) {
+        pres->point = 0;
+    }
+    pres->view_y = pres->save_points[pres->point];
+}
+
+void pres_last_point(pres_t *pres) {
+    if (!pres->is_animating) {
+        pres->point = pres->n_points - 1;
+    }
+    pres->view_y = pres->save_points[pres->point];
 }

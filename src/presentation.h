@@ -4,6 +4,8 @@
 #include "internal.h"
 #include "array.h"
 #include "tree.h"
+#include "font.h"
+#include "threadpool.h"
 
 #define PRES_PARA      (1)
 #define PRES_BREAK     (2)
@@ -45,6 +47,9 @@ typedef tree(image_path_t, sdl_texture_t)    image_map_t;
 typedef tree_it(image_path_t, sdl_texture_t) image_map_it;
 
 typedef struct {
+    tp_t            *tp;
+    pthread_mutex_t  images_mutex;
+
     SDL_Renderer *sdl_ren;
     array_t       elements;
     array_t       fonts;
@@ -54,11 +59,27 @@ typedef struct {
     float         speed;
     char         *bullet_strings[MAX_BULLET_LEVEL];
     image_map_t   images;
+
+    u32           w, h;
+    font_cache_t *cur_font;
+    int           draw_x,   draw_y;
+    int           view_x,   view_y;
+    u32           n_points, point;
+    int           save_points[2048];
+    int           dst_view_y;
+    int           is_animating;
+    int           is_translating;
 } pres_t;
 
 pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren);
 void free_presentation(pres_t *pres);
 char * pres_get_font_name_by_id(pres_t *pres, u32 id);
 sdl_texture_t pres_get_image_texture(pres_t *pres, const char *image);
+
+void draw_presentation(pres_t *pres);
+void pres_next_point(pres_t *pres);
+void pres_prev_point(pres_t *pres);
+void pres_first_point(pres_t *pres);
+void pres_last_point(pres_t *pres);
 
 #endif

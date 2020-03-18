@@ -8,13 +8,14 @@
 #include "threadpool.h"
 
 #define PRES_PARA      (1)
-#define PRES_BREAK     (2)
-#define PRES_VSPACE    (3)
-#define PRES_VFILL     (4)
-#define PRES_POINT     (5)
-#define PRES_BULLET    (6)
-#define PRES_IMAGE     (7)
-#define PRES_TRANSLATE (8)
+#define PRES_PARA_ELEM (2)
+#define PRES_BREAK     (3)
+#define PRES_VSPACE    (4)
+#define PRES_VFILL     (5)
+#define PRES_POINT     (6)
+#define PRES_BULLET    (7)
+#define PRES_IMAGE     (8)
+#define PRES_TRANSLATE (9)
 
 #define MAX_BULLET_LEVEL (3)
 
@@ -27,6 +28,7 @@ typedef struct {
     int      x, y, w, h;
     int      level;
     array_t  text;
+    array_t  para_elems;
     u32      font_id;
     u32      font_size;
     u32      r, g, b;
@@ -76,7 +78,10 @@ void free_presentation(pres_t *pres);
 char * pres_get_font_name_by_id(pres_t *pres, u32 id);
 sdl_texture_t pres_get_image_texture(pres_t *pres, const char *image);
 
+void pres_clear_and_draw_bg(pres_t *pres);
 void draw_presentation(pres_t *pres);
+void update_presentation(pres_t *pres);
+void pres_restore_point(pres_t *pres, int point);
 void pres_next_point(pres_t *pres);
 void pres_prev_point(pres_t *pres);
 void pres_first_point(pres_t *pres);

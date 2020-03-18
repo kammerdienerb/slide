@@ -6,13 +6,13 @@ pres_t        pres;
 const char   *pres_path;
 SDL_Renderer *sdl_ren;
 SDL_Window   *sdl_win;
+int           reloading;
 
 int  init_video(void);
 void fini_video(void);
 
 
 static void update_window_resolution(pres_t *pres) {
-    SDL_SetWindowSize(sdl_win, pres->w, pres->h);
     SDL_RenderSetLogicalSize(sdl_ren, pres->w, pres->h);
 }
 
@@ -23,7 +23,7 @@ void reload_pres(pres_t *pres, const char *path) {
 }
 
 static void handle_hup(int sig) {
-    reload_pres(&pres, pres_path);
+    reloading = 1;
 }
 
 static void register_hup_handler(void) {
@@ -47,6 +47,7 @@ int main(int argc, char **argv) {
     u32             frame_start_ms, frame_elapsed_ms;
     u64             frame;
     const Uint8    *key_state;
+    int             save_point;
 
     sdl_ren = NULL;
 
@@ -66,19 +67,39 @@ int main(int argc, char **argv) {
         pres_path = argv[1];
         pres = build_presentation(pres_path, sdl_ren);
         update_window_resolution(&pres);
+        SDL_SetWindowSize(sdl_win, pres.w, pres.h);
     } TIME_OFF(build_presentation);
 
     register_hup_handler();
 
-    quit  = 0;
-    frame = 0;
-
-    SDL_ShowWindow(sdl_win);
+    quit       = 0;
+    frame      = 0;
+    save_point = 0;
 
     while (!quit) {
         frame_start_ms = SDL_GetTicks();
 
+        if (reloading) {
+            save_point = pres.point;
+            reload_pres(&pres, pres_path);
+        }
+
         draw_presentation(&pres);
+        update_presentation(&pres);
+
+        if (reloading) {
+            pres_restore_point(&pres, save_point);
+        }
+
+        if (frame == DISPLAY_DELAY_FRAMES) {
+            SDL_ShowWindow(sdl_win);
+        }
+
+        if (reloading) {
+            pres_clear_and_draw_bg(&pres);
+        }
+
+        reloading = 0;
 
         SDL_RenderPresent(sdl_ren);
 

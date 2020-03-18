@@ -42,7 +42,8 @@ fprintf(stderr, "[slide] ERROR: " __VA_ARGS__); \
 #define FPS_TO_MS(fps)   ((1000) * (1.0 / (float)(fps)))
 #define FPS_CAP_MS       ((u64)(FPS_TO_MS(60)))
 
-#define DEFAULT_RES_W (1440)
-#define DEFAULT_RES_H (1080)
+#define DEFAULT_RES_W        (1440)
+#define DEFAULT_RES_H        (1080)
+#define DISPLAY_DELAY_FRAMES (1)
 
 #endif

@@ -129,19 +129,31 @@ typedef struct {
     int          justification;
 } build_ctx_t;
 
+static void format_elem(build_ctx_t *ctx, pres_elem_t *elem) {
+    elem->font_id       = ctx->font_id;
+    elem->font_size     = ctx->font_size;
+    elem->r             = ctx->r;
+    elem->g             = ctx->g;
+    elem->b             = ctx->b;
+    elem->l_margin      = ctx->l_margin;
+    elem->r_margin      = ctx->r_margin;
+    elem->justification = ctx->justification;
+}
+
 static void commit_element(pres_t *pres, build_ctx_t *ctx) {
     if (!ctx->elem.kind) {
         return;
     }
 
-    ctx->elem.font_id       = ctx->font_id;
-    ctx->elem.font_size     = ctx->font_size;
-    ctx->elem.r             = ctx->r;
-    ctx->elem.g             = ctx->g;
-    ctx->elem.b             = ctx->b;
-    ctx->elem.l_margin      = ctx->l_margin;
-    ctx->elem.r_margin      = ctx->r_margin;
-    ctx->elem.justification = ctx->justification;
+    /*
+     * Paragraphs and bullets get formated when they
+     * get their first text element.
+     * See do_para().
+     */
+    if (ctx->elem.kind != PRES_PARA
+    &&  ctx->elem.kind != PRES_BULLET) {
+        format_elem(ctx, &ctx->elem);
+    }
 
     array_push(pres->elements, ctx->elem);
 
@@ -388,9 +400,9 @@ DEF_CMD(bullet) {
         BUILD_ERR("level must be between 1 and 3\n");
     }
 
-    ctx->elem.level = I;
-    ctx->elem.kind  = PRES_BULLET;
-    ctx->elem.text  = array_make(char);
+    ctx->elem.level      = I;
+    ctx->elem.kind       = PRES_BULLET;
+    ctx->elem.para_elems = array_make(pres_elem_t);
 }
 
 typedef struct {
@@ -547,18 +559,28 @@ do {                              \
 char space = ' ';
 
 static void do_para(pres_t *pres, build_ctx_t *ctx, char *line, int line_len) {
+    pres_elem_t elem;
+
     if (ctx->elem.kind != PRES_PARA
     &&  ctx->elem.kind != PRES_BULLET) {
         commit_element(pres, ctx);
-        ctx->elem.kind = PRES_PARA;
-        ctx->elem.text = array_make(char);
-    } else {
-        if (array_len(ctx->elem.text)) {
-            array_push(ctx->elem.text, space);
-        }
+        ctx->elem.kind       = PRES_PARA;
+        ctx->elem.para_elems = array_make(pres_elem_t);
     }
-    array_push_n(ctx->elem.text, line, line_len);
-    array_zero_term(ctx->elem.text);
+
+    memset(&elem, 0, sizeof(elem));
+    elem.kind = PRES_PARA_ELEM;
+    elem.text = array_make(char);
+
+    array_push_n(elem.text, line, line_len);
+    array_zero_term(elem.text);
+
+    format_elem(ctx, &elem);
+    array_push(ctx->elem.para_elems, elem);
+
+    if (array_len(ctx->elem.para_elems) == 1) {
+        format_elem(ctx, &ctx->elem);
+    }
 }
 
 static void do_break(pres_t *pres, build_ctx_t *ctx) {
@@ -685,7 +707,7 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
     memset(&ctx, 0, sizeof(ctx));
     ctx.font_id       = get_or_add_font_by_id(&pres, "fonts/luximr.ttf");
     ctx.font_size     = 16;
-    ctx.r             = ctx.g = ctx.b = 255;
+    ctx.r             = ctx.g = ctx.b = 0;
     ctx.justification = JUST_L;
 
     /* Add a point to the beginning of the presentation. */
@@ -708,8 +730,9 @@ void free_presentation(pres_t *pres) {
     image_map_it   iit;
     macro_map_it   mit;
     char         **lit;
-    pres_elem_t   *eit;
     char         **fit;
+    pres_elem_t   *eit1,
+                  *eit2;
 
     tree_traverse(pres->images, iit) {
         free(tree_it_key(iit));
@@ -729,10 +752,13 @@ void free_presentation(pres_t *pres) {
     array_traverse(pres->fonts, fit) { free(*fit); }
     array_free(pres->fonts);
 
-    array_traverse(pres->elements, eit) {
-        if (eit->kind == PRES_PARA
-        ||  eit->kind == PRES_BULLET) {
-            array_free(eit->text);
+    array_traverse(pres->elements, eit1) {
+        if (eit1->kind == PRES_PARA
+        ||  eit1->kind == PRES_BULLET) {
+            array_traverse(eit1->para_elems, eit2) {
+                array_free(eit2->text);
+            }
+            array_free(eit1->para_elems);
         }
     }
     array_free(pres->elements);
@@ -752,7 +778,7 @@ sdl_texture_t pres_get_image_texture(pres_t *pres, const char *image) {
 }
 
 
-static void clear_and_draw_bg(pres_t *pres) {
+void pres_clear_and_draw_bg(pres_t *pres) {
     SDL_Rect r;
     int      sum;
 
@@ -862,6 +888,9 @@ static array_t get_wrap_points(pres_t *pres, const unsigned char *bytes, int l_m
     return wrap_points;
 }
 
+#define IN_VIEW(pres) \
+((pres)->draw_y > -((pres)->h) || (pres)->draw_y < (pres)->h)
+
 void draw_string(pres_t *pres, const char *str, int l_margin, int r_margin, int justification) {
     int            _x, _y;
     int            len;
@@ -946,7 +975,9 @@ void draw_string(pres_t *pres, const char *str, int l_margin, int r_margin, int 
             }
         }
 
-        SDL_RenderCopy(pres->sdl_ren, entry->texture, &srect, &drect);
+        if (IN_VIEW(pres)) {
+            SDL_RenderCopy(pres->sdl_ren, entry->texture, &srect, &drect);
+        }
 
         if (!wrapped) {
             pres->draw_x += entry->pen_advance_x;
@@ -960,16 +991,129 @@ void draw_string(pres_t *pres, const char *str, int l_margin, int r_margin, int 
     array_free(wrap_points);
 }
 
+void draw_para_strings(pres_t *pres, pres_elem_t *elem) {
+    int            _x, _y;
+    int            i;
+    font_entry_t  *entry;
+    SDL_Rect       srect,
+                   drect;
+    array_t        wrap_points;
+    array_t        line_widths;
+    int           *wrap_it;
+    int            wrapped;
+    unsigned char *bytes;
+    char_code_t    code;
+    int            n_bytes;
+    int            line;
+    font_cache_t  *font;
+    pres_elem_t   *eit;
+    array_t        all_text;
+    char          *c;
+
+    font = get_or_load_font(
+            pres_get_font_name_by_id(pres, elem->font_id),
+            elem->font_size, pres->sdl_ren);
+
+    if (!font) { return; }
+
+    pres->cur_font = font;
+
+    all_text = array_make(char);
+    array_traverse(elem->para_elems, eit) {
+        array_push_n(all_text,
+                     array_data(eit->text),
+                     array_len(eit->text));
+    }
+    array_zero_term(all_text);
+
+    _x = pres->draw_x + elem->l_margin;
+    _y = pres->draw_y;
+    (void)_y;
+
+    pres->draw_x  = _x;
+    pres->draw_y += font->line_height;
+
+    bytes       = (unsigned char*)array_data(all_text);
+    wrap_points = get_wrap_points(pres, bytes,
+                                  elem->l_margin, elem->r_margin,
+                                  &line_widths);
+
+    line = 0;
+
+    switch (elem->justification) {
+        case JUST_L: break;
+        case JUST_R:
+            pres->draw_x += (pres->w - elem->l_margin - elem->r_margin) - *(int*)array_item(line_widths, line);
+            break;
+        case JUST_C:
+            pres->draw_x += ((pres->w - elem->l_margin - elem->r_margin) - *(int*)array_item(line_widths, line)) / 2;
+            break;
+    }
+
+    i = 0;
+
+    array_traverse(elem->para_elems, eit) {
+        bytes = (unsigned char*)array_data(eit->text);
+
+        set_font_color(font, eit->r, eit->g, eit->b);
+
+        array_traverse(eit->text, c) {
+            wrapped = 0;
+
+            code  = get_char_code(c, &n_bytes);
+            entry = get_glyph(font, code, pres->sdl_ren);
+
+            srect.x = entry->x;
+            srect.y = entry->y;
+            srect.w = entry->w;
+            srect.h = entry->h;
+
+            drect.x = pres->draw_x + entry->adjust_x;
+            drect.y = pres->draw_y - entry->adjust_y;
+            drect.w = entry->w;
+            drect.h = entry->h;
+
+            array_traverse(wrap_points, wrap_it) {
+                if (*wrap_it == i) {
+                    line   += 1;
+                    pres->draw_y += 1.25 * font->line_height;
+                    pres->draw_x  = _x;
+
+                    switch (elem->justification) {
+                        case JUST_L: break;
+                        case JUST_R:
+                            pres->draw_x += (pres->w - elem->l_margin - elem->r_margin) - *(int*)array_item(line_widths, line);
+                            break;
+                        case JUST_C:
+                            pres->draw_x += ((pres->w - elem->l_margin - elem->r_margin) - *(int*)array_item(line_widths, line)) / 2;
+                            break;
+                    }
+
+                    wrapped = 1;
+                    break;
+                }
+            }
+
+            if (IN_VIEW(pres)) {
+                SDL_RenderCopy(pres->sdl_ren, entry->texture, &srect, &drect);
+            }
+
+            if (!wrapped) {
+                pres->draw_x += entry->pen_advance_x;
+            }
+            pres->draw_y += entry->pen_advance_y;
+
+            i += n_bytes;
+        }
+    }
+
+    array_free(line_widths);
+    array_free(wrap_points);
+    array_free(all_text);
+}
+
 static void draw_para(pres_t *pres, pres_elem_t *elem) {
-    pres->cur_font = get_or_load_font(
-                        pres_get_font_name_by_id(pres, elem->font_id),
-                        elem->font_size, pres->sdl_ren);
-
-    set_font_color(pres->cur_font, elem->r, elem->g, elem->b);
-
-    draw_string(pres,
-                array_data(elem->text),
-                elem->l_margin, elem->r_margin, elem->justification);
+    draw_para_strings(pres, elem);
 
     pres->is_translating = 0;
 }
@@ -978,6 +1122,7 @@ static void draw_bullet(pres_t *pres, pres_elem_t *elem) {
     int save_draw_x,
         save_draw_y;
     int new_l_margin;
+    int save_l_margin;
 
     pres->cur_font = get_or_load_font(
                         pres_get_font_name_by_id(pres, elem->font_id),
@@ -999,14 +1144,24 @@ static void draw_bullet(pres_t *pres, pres_elem_t *elem) {
     pres->draw_x = save_draw_x;
     pres->draw_y = save_draw_y;
 
-    draw_string(pres,
-                array_data(elem->text),
-                new_l_margin, elem->r_margin, elem->justification);
+    save_l_margin  = elem->l_margin;
+    elem->l_margin = new_l_margin;
+    draw_para_strings(pres, elem);
+    elem->l_margin = save_l_margin;
 
     pres->is_translating = 0;
 }
 
+static void draw_para_cont(pres_t *pres, pres_elem_t *elem) {
+}
+
+static void dump_current_para(pres_t *pres) {
+
+}
+
 static void draw_break(pres_t *pres, pres_elem_t *elem) {
+    dump_current_para(pres);
+
     if (pres->cur_font) {
         pres->draw_y += 1.25 * pres->cur_font->line_height;
     }
@@ -1015,16 +1170,22 @@ static void draw_break(pres_t *pres, pres_elem_t *elem) {
 }
 
 static void draw_vspace(pres_t *pres, pres_elem_t *elem) {
+    dump_current_para(pres);
+
     pres->draw_y         += elem->y;
     pres->is_translating  = 0;
 }
 
 static void draw_vfill(pres_t *pres, pres_elem_t *elem) {
+    dump_current_para(pres);
+
     pres->draw_y         += pres->h - ((pres->draw_y - pres->view_y) % pres->h);
     pres->is_translating  = 0;
 }
 
 static void handle_point(pres_t *pres, pres_elem_t *elem) {
+    dump_current_para(pres);
+
     pres->save_points[pres->n_points]  = -(pres->draw_y - pres->view_y);
     pres->n_points                    += 1;
 }
@@ -1033,6 +1194,8 @@ static void draw_image(pres_t *pres, pres_elem_t *elem) {
     sdl_texture_t image_texture;
     SDL_Rect      drect;
 
+    dump_current_para(pres);
+
     image_texture = pres_get_image_texture(pres, elem->image);
 
     drect.x = pres->draw_x;
@@ -1040,7 +1203,9 @@ static void draw_image(pres_t *pres, pres_elem_t *elem) {
     drect.w = elem->w;
     drect.h = elem->h;
 
-    SDL_RenderCopy(pres->sdl_ren, image_texture, NULL, &drect);
+    if (IN_VIEW(pres)) {
+        SDL_RenderCopy(pres->sdl_ren, image_texture, NULL, &drect);
+    }
 
     pres->draw_y         += drect.h;
     pres->is_translating  = 0;
@@ -1086,16 +1251,18 @@ static void do_animation(pres_t *pres) {
 void draw_presentation(pres_t *pres) {
     pres_elem_t *elem;
 
-    clear_and_draw_bg(pres);
+    pres_clear_and_draw_bg(pres);
 
-    pres->draw_x   = pres->view_x;
-    pres->draw_y   = pres->view_y;
-    pres->n_points = 0;
+    pres->draw_x         = pres->view_x;
+    pres->draw_y         = pres->view_y;
+    pres->n_points       = 0;
+    pres->is_translating = 0;
 
     array_traverse(pres->elements, elem) {
         switch (elem->kind) {
             case PRES_PARA:      draw_para(pres, elem);      break;
             case PRES_BULLET:    draw_bullet(pres, elem);    break;
+            case PRES_PARA_ELEM: draw_para_cont(pres, elem); break;
             case PRES_BREAK:     draw_break(pres, elem);     break;
             case PRES_VSPACE:    draw_vspace(pres, elem);    break;
             case PRES_VFILL:     draw_vfill(pres, elem);     break;
@@ -1107,7 +1274,28 @@ void draw_presentation(pres_t *pres) {
         if (!pres->is_translating) { pres->draw_x = 0; }
     }
 
+    dump_current_para(pres);
+}
+
+void update_presentation(pres_t *pres) {
     do_animation(pres);
+}
+
+void pres_restore_point(pres_t *pres, int point) {
+    pres->is_animating = 0;
+
+    if (pres->n_points == 0) {
+        pres->view_y = 0;
+        pres->point  = 0;
+        return;
+    }
+
+    if (point >= pres->n_points) {
+        point = pres->n_points - 1;
+    }
+
+    pres->point  = point;
+    pres->view_y = pres->save_points[pres->point];
 }
 
 void pres_next_point(pres_t *pres) {

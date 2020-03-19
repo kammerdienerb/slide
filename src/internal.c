@@ -15,3 +15,11 @@ u64 next_power_of_2(u64 x) {
     x++;
     return x;
 }
+
+u64 gettime_ns(void) {
+    struct timespec t;
+
+    clock_gettime(CLOCK_MONOTONIC, &t);
+
+    return 1000000000ULL * (u64)t.tv_sec + (u64)t.tv_nsec;
+}

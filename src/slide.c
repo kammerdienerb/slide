@@ -115,7 +115,10 @@ int main(int argc, char **argv) {
                 }
             } else if (e.type == SDL_KEYDOWN) {
                 key_state = SDL_GetKeyboardState(NULL);
-                if (!pres.is_animating) {
+
+                if (key_state[SDL_SCANCODE_Q]) {
+                    quit = 1;
+                } else if (!pres.is_animating) {
                     if (key_state[SDL_SCANCODE_J]) {
                         pres_next_point(&pres);
                     } else if (key_state[SDL_SCANCODE_K]) {
@@ -161,7 +164,7 @@ int init_video(void) {
         sdl_win = SDL_CreateWindow("slide",
                                     SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
                                     DEFAULT_RES_W, DEFAULT_RES_H,
-                                    SDL_WINDOW_HIDDEN | SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE);
+                                    SDL_WINDOW_HIDDEN | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE);
         if (sdl_win == NULL) {
             ERR("Window could not be created! SDL_Error: %s\n", SDL_GetError());
         }
@@ -169,7 +172,9 @@ int init_video(void) {
 
 
     TIME_ON(sdl_create_renderer) {
-        sdl_ren = SDL_CreateRenderer(sdl_win, -1, SDL_RENDERER_ACCELERATED);
+        sdl_ren = SDL_CreateRenderer(sdl_win,
+                                     -1,
+                                     SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     } TIME_OFF(sdl_create_renderer);
 
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");  // make the scaled rendering look smoother.

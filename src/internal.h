@@ -8,9 +8,9 @@
 #include FT_FREETYPE_H
 #include <stdio.h>
 #include <stdint.h>
-#include <sys/time.h>
+#include <time.h>
 #include <assert.h>
-#include <sys/signal.h>
+#include <signal.h>
 
 #include <locale.h>
 #define __USE_XOPEN
@@ -24,6 +24,7 @@ typedef uint64_t u64;
 #define unlikely(x) (__builtin_expect(!!(x), 0))
 
 u64 next_power_of_2(u64 x);
+u64 gettime_ns(void);
 
 #define TIME_ON(label)                                                 \
 do {                                                                   \

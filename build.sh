@@ -10,4 +10,4 @@ gcc -Wall -c src/font.c         -I src $(pkg-config --cflags freetype2) ${CFG} -
 gcc -Wall -c src/presentation.c -I src $(pkg-config --cflags freetype2) ${CFG} -o src/presentation.o &
 gcc -Wall -c src/slide.c        -I src $(pkg-config --cflags freetype2) ${CFG} -o src/slide.o        &
 wait
-gcc src/*.o -lfreetype -lSDL2 -lOpenGL -lm -lpthread -o slide
+gcc src/*.o -lfreetype -lSDL2 -lm -lpthread -o slide

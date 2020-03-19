@@ -50,23 +50,27 @@ use_tree(macro_name_t, array_t);
 typedef tree(macro_name_t, array_t)    macro_map_t;
 typedef tree_it(macro_name_t, array_t) macro_map_it;
 
-typedef char *image_path_t;
 typedef SDL_Texture *sdl_texture_t;
-use_tree(image_path_t, sdl_texture_t);
-typedef tree(image_path_t, sdl_texture_t)    image_map_t;
-typedef tree_it(image_path_t, sdl_texture_t) image_map_it;
 
 typedef struct {
-    tp_t            *tp;
-    pthread_mutex_t  images_mutex;
+    void          *image_data;
+    sdl_texture_t  texture;
+    int            w, h;
+} pres_image_data_t;
 
+typedef char *image_path_t;
+use_tree(image_path_t, pres_image_data_t);
+typedef tree(image_path_t, pres_image_data_t)    image_map_t;
+typedef tree_it(image_path_t, pres_image_data_t) image_map_it;
+
+typedef struct {
     SDL_Renderer *sdl_ren;
     array_t       elements;
     array_t       fonts;
     macro_map_t   macros;
     array_t      *collect_lines;
     u32           r, g, b;
-    float         speed;
+    double        speed;
     char         *bullet_strings[MAX_BULLET_LEVEL];
     image_map_t   images;
 
@@ -77,6 +81,7 @@ typedef struct {
     u32           n_points, point;
     int           save_points[2048];
     int           dst_view_y;
+    u64           anim_t;
     int           is_animating;
     int           is_translating;
 } pres_t;

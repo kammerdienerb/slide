@@ -140,6 +140,8 @@ static font_cache_t * pres_get_elem_font(pres_t *pres, pres_elem_t *elem) {
 }
 
 typedef struct {
+    tp_t *tp;
+
     int          line;
     const char  *path;
     char        *cmd;
@@ -475,10 +477,10 @@ DEF_CMD(bullet) {
 }
 
 typedef struct {
-    pres_t        *pres;
-    build_ctx_t   *ctx;
-    char          *path;
-    sdl_texture_t *texture_ptr;
+    pres_t            *pres;
+    build_ctx_t       *ctx;
+    char              *path;
+    pres_image_data_t *image_data;
 } async_load_image_payload_t;
 
 static void async_load_image(void *arg) {
@@ -486,43 +488,38 @@ static void async_load_image(void *arg) {
     pres_t                     *pres;
     build_ctx_t                *ctx;
     char                       *path;
-    sdl_texture_t              *texture_ptr;
+    pres_image_data_t          *image_data;
     int                         want_fmt, orig_fmt;
-    int                         w, h, depth, pitch, pixel_format;
-    unsigned char              *image_data;
-    SDL_Surface                *surface;
+    int                         w, h;
+    unsigned char              *pixels;
 
     payload = arg;
 
     pres        = payload->pres;
     ctx         = payload->ctx;
     path        = payload->path;
-    texture_ptr = payload->texture_ptr;
+    image_data  = payload->image_data;
 
-    want_fmt   = STBI_rgb_alpha;
-    image_data = stbi_load(path, &w, &h, &orig_fmt, want_fmt);
-    if (image_data == NULL) {
+    (void)pres;
+
+    want_fmt = STBI_rgb_alpha;
+    pixels   = stbi_load(path, &w, &h, &orig_fmt, want_fmt);
+    if (pixels == NULL) {
         BUILD_ERR("loading image '%s' failed\n    %s\n", path, stbi_failure_reason());
     }
 
-    depth        = 32;
-    pitch        = 4 * w;
-    pixel_format = SDL_PIXELFORMAT_RGBA32;
+    image_data->image_data = (void*)pixels;
+    image_data->w          = w;
+    image_data->h          = h;
 
-    pthread_mutex_lock(&pres->images_mutex);
-        surface      = SDL_CreateRGBSurfaceWithFormatFrom((void*)image_data, w, h,
-                                                          depth, pitch, pixel_format);
-        *texture_ptr = SDL_CreateTextureFromSurface(pres->sdl_ren, surface);
-        SDL_FreeSurface(surface);
-    pthread_mutex_unlock(&pres->images_mutex);
-
-    stbi_image_free(image_data);
+    printf("[async_image_load] loaded '%s'\n", path);
 
     free(arg);
 }
 
 static image_path_t ensure_image(pres_t *pres, build_ctx_t *ctx, const char *path) {
     image_map_it                it;
+    pres_image_data_t           image_data;
     async_load_image_payload_t *payload;
 
     it = tree_lookup(pres->images, (char*)path);
@@ -531,16 +528,17 @@ static image_path_t ensure_image(pres_t *pres, build_ctx_t *ctx, const char *pat
         return tree_it_key(it);
     }
 
-    it = tree_insert(pres->images, strdup(path), NULL);
+    image_data.image_data = image_data.texture = NULL;
+    it = tree_insert(pres->images, strdup(path), image_data);
 
     payload = malloc(sizeof(*payload));
 
     payload->pres        = pres;
     payload->ctx         = ctx;
     payload->path        = tree_it_key(it);
-    payload->texture_ptr = &tree_it_val(it);
+    payload->image_data  = &tree_it_val(it);
 
-    tp_add_task(pres->tp, async_load_image, payload);
+    tp_add_task(ctx->tp, async_load_image, payload);
 
     return tree_it_key(it);
 }
@@ -757,14 +755,48 @@ doline:
     return 1;
 }
 
+static void pres_create_image_texture(pres_t *pres, pres_image_data_t *image_data) {
+    SDL_Surface *surface;
+
+    surface = SDL_CreateRGBSurfaceWithFormatFrom(
+                (void*)image_data->image_data,
+                image_data->w, image_data->h,
+                sizeof(u32), sizeof(u32) * image_data->w,
+                SDL_PIXELFORMAT_RGBA32);
+
+    image_data->texture = SDL_CreateTextureFromSurface(pres->sdl_ren, surface);
+
+    SDL_FreeSurface(surface);
+
+    free(image_data->image_data);
+    image_data->image_data = NULL;
+}
+
+sdl_texture_t pres_get_image_texture(pres_t *pres, const char *image) {
+    image_map_it       it;
+    pres_image_data_t *image_data;
+
+    it = tree_lookup(pres->images, (char*)image);
+
+    if (tree_it_good(it)) {
+        image_data = &tree_it_val(it);
+
+        if (image_data->texture == NULL) {
+            pres_create_image_texture(pres, image_data);
+        }
+
+        return image_data->texture;
+    }
+
+    return NULL;
+}
+
 pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
     pres_t        pres;
     build_ctx_t   ctx;
+    image_map_it  iit;
 
     memset(&pres, 0, sizeof(pres));
-
-    pres.tp            = tp_make(8);
-    pthread_mutex_init(&pres.images_mutex, NULL);
 
     pres.sdl_ren       = sdl_ren;
     pres.elements      = array_make(pres_elem_t);
@@ -780,7 +812,7 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
     pres.bullet_strings[1] = "› ";
     pres.bullet_strings[2] = "– ";
 
-    pres.images = tree_make_c(image_path_t, sdl_texture_t, strcmp);
+    pres.images = tree_make_c(image_path_t, pres_image_data_t, strcmp);
 
     memset(&ctx, 0, sizeof(ctx));
     ctx.font_id             = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-Regular.otf");
@@ -792,6 +824,8 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
     ctx.justification       = JUST_L;
     ctx.flags               = 0;
 
+    ctx.tp = tp_make(8);
+
     /* Add a point to the beginning of the presentation. */
     ctx.elem.kind = PRES_POINT;
     commit_element(&pres, &ctx);
@@ -801,24 +835,37 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
         ERR("could not open presentation file '%s'\n", path);
     }
 
-    tp_wait(pres.tp);
-    tp_stop(pres.tp, TP_GRACEFUL);
-    tp_free(pres.tp);
+    tp_wait(ctx.tp);
+    tp_stop(ctx.tp, TP_GRACEFUL);
+    tp_free(ctx.tp);
+
+    (void)iit;
+/*     tree_traverse(pres.images, iit) { */
+/*         pres_create_image_texture(&pres, &tree_it_val(iit)); */
+/*     } */
 
     return pres;
 }
 
 void free_presentation(pres_t *pres) {
-    image_map_it   iit;
-    macro_map_it   mit;
-    char         **lit;
-    char         **fit;
-    pres_elem_t   *eit1,
-                  *eit2;
+    image_map_it       iit;
+    pres_image_data_t *image_data;
+    macro_map_it       mit;
+    char             **lit;
+    char             **fit;
+    pres_elem_t       *eit1,
+                      *eit2;
 
     tree_traverse(pres->images, iit) {
         free(tree_it_key(iit));
-        SDL_DestroyTexture(tree_it_val(iit));
+        image_data = &tree_it_val(iit);
+
+        if (image_data->image_data) {
+            free(image_data);
+        }
+        if (image_data->texture) {
+            SDL_DestroyTexture(image_data->texture);
+        }
     }
     tree_free(pres->images);
 
@@ -845,18 +892,6 @@ void free_presentation(pres_t *pres) {
     }
     array_free(pres->elements);
 
-}
-
-sdl_texture_t pres_get_image_texture(pres_t *pres, const char *image) {
-    image_map_it it;
-
-    it = tree_lookup(pres->images, (char*)image);
-
-    if (tree_it_good(it)) {
-        return tree_it_val(it);
-    }
-
-    return NULL;
 }
 
 
@@ -971,7 +1006,7 @@ static array_t get_wrap_points(pres_t *pres, const unsigned char *bytes, int l_m
 }
 
 #define IN_VIEW(pres) \
-((pres)->draw_y > -((pres)->h) || (pres)->draw_y < (pres)->h)
+((pres)->draw_y > -((pres)->h) || (pres)->draw_y < (2 * (pres)->h))
 
 void draw_string(pres_t *pres, const char *str, int l_margin, int r_margin, int justification) {
     int            _x, _y;
@@ -1265,13 +1300,7 @@ static void draw_bullet(pres_t *pres, pres_elem_t *elem) {
 static void draw_para_cont(pres_t *pres, pres_elem_t *elem) {
 }
 
-static void dump_current_para(pres_t *pres) {
-
-}
-
 static void draw_break(pres_t *pres, pres_elem_t *elem) {
-    dump_current_para(pres);
-
     if (pres->cur_font) {
         pres->draw_y += 1.25 * pres->cur_font->line_height;
     }
@@ -1280,22 +1309,16 @@ static void draw_break(pres_t *pres, pres_elem_t *elem) {
 }
 
 static void draw_vspace(pres_t *pres, pres_elem_t *elem) {
-    dump_current_para(pres);
-
     pres->draw_y         += elem->y;
     pres->is_translating  = 0;
 }
 
 static void draw_vfill(pres_t *pres, pres_elem_t *elem) {
-    dump_current_para(pres);
-
     pres->draw_y         += pres->h - ((pres->draw_y - pres->view_y) % pres->h);
     pres->is_translating  = 0;
 }
 
 static void handle_point(pres_t *pres, pres_elem_t *elem) {
-    dump_current_para(pres);
-
     pres->save_points[pres->n_points]  = -(pres->draw_y - pres->view_y);
     pres->n_points                    += 1;
 }
@@ -1303,8 +1326,6 @@ static void handle_point(pres_t *pres, pres_elem_t *elem) {
 static void draw_image(pres_t *pres, pres_elem_t *elem) {
     sdl_texture_t image_texture;
     SDL_Rect      drect;
-
-    dump_current_para(pres);
 
     image_texture = pres_get_image_texture(pres, elem->image);
 
@@ -1328,18 +1349,28 @@ static void draw_translate(pres_t *pres, pres_elem_t *elem) {
 }
 
 static void do_animation(pres_t *pres) {
+    u64    cur_t_ns,
+           dt_ns;
+    double dt_s;
+
     if (pres->is_animating) {
+        cur_t_ns = gettime_ns();
+        dt_ns    = cur_t_ns - pres->anim_t;
+        dt_s     = ((double)dt_ns) / 1000000000.0;
+
         if (pres->view_y < pres->dst_view_y) {
-            pres->view_y += pres->speed * FPS_CAP_MS;
+            pres->view_y += pres->speed * dt_s * pres->h;
             if (pres->view_y > pres->dst_view_y) {
                 pres->view_y = pres->dst_view_y;
             }
         } else if (pres->view_y > pres->dst_view_y) {
-            pres->view_y -= pres->speed * FPS_CAP_MS;
+            pres->view_y -= pres->speed * dt_s * pres->h;
             if (pres->view_y < pres->dst_view_y) {
                 pres->view_y = pres->dst_view_y;
             }
         }
+
+        pres->anim_t = cur_t_ns;
 
         if (pres->view_y == pres->dst_view_y) {
             pres->is_animating = 0;
@@ -1352,6 +1383,7 @@ static void do_animation(pres_t *pres) {
 
             if (pres->view_y != pres->save_points[pres->point]) {
                 pres->dst_view_y   = pres->save_points[pres->point];
+                pres->anim_t       = gettime_ns();
                 pres->is_animating = 1;
             }
         }
@@ -1383,8 +1415,6 @@ void draw_presentation(pres_t *pres) {
 
         if (!pres->is_translating) { pres->draw_x = 0; }
     }
-
-    dump_current_para(pres);
 }
 
 void update_presentation(pres_t *pres) {

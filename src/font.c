@@ -79,6 +79,7 @@ font_cache_t *get_or_load_font(const char *name, u32 size, SDL_Renderer *sdl_ren
 
     /* Create the pixel buffer and texture. */
     pixels = (u32*)malloc(sizeof(u32) * num_pixels);
+    memset(pixels, 0, sizeof(u32) * num_pixels);
     cache.ascii_texture = SDL_CreateTexture(sdl_ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STATIC, rect.w, rect.h);
     SDL_SetTextureBlendMode(cache.ascii_texture, SDL_BLENDMODE_BLEND);
 
@@ -178,6 +179,7 @@ font_entry_t *get_glyph(font_cache_t *font, char_code_t ch, SDL_Renderer *sdl_re
     rect.h = b.rows;
 
     pixels = (u32*)malloc(sizeof(u32) * num_pixels);
+    memset(pixels, 0, sizeof(u32) * num_pixels);
     entry.texture = SDL_CreateTexture(sdl_ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STATIC, rect.w, rect.h);
     SDL_SetTextureBlendMode(entry.texture, SDL_BLENDMODE_BLEND);
 

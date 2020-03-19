@@ -117,27 +117,57 @@ static u32 get_or_add_font_by_id(pres_t *pres, char *font) {
     return array_len(pres->fonts) - 1;
 }
 
+static font_cache_t * pres_get_elem_font(pres_t *pres, pres_elem_t *elem) {
+    u32 which;
+    u32 id;
+
+    which = 0;
+
+    which += 1 * !!(elem->flags & PRES_BOLD);
+    which += 2 * !!(elem->flags & PRES_ITALIC);
+
+    switch (which) {
+        case 0:  id = elem->font_id;             break;
+        case 1:  id = elem->font_bold_id;        break;
+        case 2:  id = elem->font_italic_id;      break;
+        case 3:  id = elem->font_bold_italic_id; break;
+        default: return NULL;
+    }
+
+    return get_or_load_font(
+                pres_get_font_name_by_id(pres, id),
+                elem->font_size, pres->sdl_ren);
+}
+
 typedef struct {
     int          line;
     const char  *path;
     char        *cmd;
     pres_elem_t  elem;
-    u32          font_id;
+    u32          font_id,
+                 font_bold_id,
+                 font_italic_id,
+                 font_bold_italic_id;
     u32          font_size;
     u32          r, g, b;
     u32          l_margin, r_margin;
     int          justification;
+    u32          flags;
 } build_ctx_t;
 
 static void format_elem(build_ctx_t *ctx, pres_elem_t *elem) {
-    elem->font_id       = ctx->font_id;
-    elem->font_size     = ctx->font_size;
-    elem->r             = ctx->r;
-    elem->g             = ctx->g;
-    elem->b             = ctx->b;
-    elem->l_margin      = ctx->l_margin;
-    elem->r_margin      = ctx->r_margin;
-    elem->justification = ctx->justification;
+    elem->font_id             = ctx->font_id;
+    elem->font_bold_id        = ctx->font_bold_id;
+    elem->font_italic_id      = ctx->font_italic_id;
+    elem->font_bold_italic_id = ctx->font_bold_italic_id;
+    elem->font_size           = ctx->font_size;
+    elem->r                   = ctx->r;
+    elem->g                   = ctx->g;
+    elem->b                   = ctx->b;
+    elem->l_margin            = ctx->l_margin;
+    elem->r_margin            = ctx->r_margin;
+    elem->justification       = ctx->justification;
+    elem->flags               = ctx->flags;
 }
 
 static void commit_element(pres_t *pres, build_ctx_t *ctx) {
@@ -307,9 +337,48 @@ DEF_CMD(font) {
     ctx->font_id = get_or_add_font_by_id(pres, S);
 }
 
+DEF_CMD(font_bold) {
+    GET_S(1);
+    ctx->font_bold_id = get_or_add_font_by_id(pres, S);
+}
+
+DEF_CMD(font_italic) {
+    GET_S(1);
+    ctx->font_italic_id = get_or_add_font_by_id(pres, S);
+}
+
+DEF_CMD(font_bold_italic) {
+    GET_S(1);
+    ctx->font_bold_italic_id = get_or_add_font_by_id(pres, S);
+}
+
 DEF_CMD(size) {
     GET_I(1);
     ctx->font_size = I >= 0 ? I : 0 - I;
+}
+
+DEF_CMD(bold) {
+    ctx->flags |= PRES_BOLD;
+}
+
+DEF_CMD(no_bold) {
+    ctx->flags &= ~PRES_BOLD;
+}
+
+DEF_CMD(italic) {
+    ctx->flags |= PRES_ITALIC;
+}
+
+DEF_CMD(no_italic) {
+    ctx->flags &= ~PRES_ITALIC;
+}
+
+DEF_CMD(underline) {
+    ctx->flags |= PRES_UNDERLINE;
+}
+
+DEF_CMD(no_underline) {
+    ctx->flags &= ~PRES_UNDERLINE;
 }
 
 DEF_CMD(bg) {
@@ -520,30 +589,39 @@ do {                              \
     cmd = *(char**)array_item(words, 0);
 
 
-    if      (strcmp(cmd, "point")      == 0) { CALL_CMD(point);      }
-    else if (strcmp(cmd, "speed")      == 0) { CALL_CMD(speed);      }
-    else if (strcmp(cmd, "resolution") == 0) { CALL_CMD(resolution); }
-    else if (strcmp(cmd, "begin")      == 0) { CALL_CMD(begin);      }
-    else if (strcmp(cmd, "end")        == 0) { CALL_CMD(end);        }
-    else if (strcmp(cmd, "use")        == 0) { CALL_CMD(use);        }
-    else if (strcmp(cmd, "include")    == 0) { CALL_CMD(include);    }
-    else if (strcmp(cmd, "font")       == 0) { CALL_CMD(font);       }
-    else if (strcmp(cmd, "size")       == 0) { CALL_CMD(size);       }
-    else if (strcmp(cmd, "bg")         == 0) { CALL_CMD(bg);         }
-    else if (strcmp(cmd, "bgx")        == 0) { CALL_CMD(bgx);        }
-    else if (strcmp(cmd, "fg")         == 0) { CALL_CMD(fg);         }
-    else if (strcmp(cmd, "fgx")        == 0) { CALL_CMD(fgx);        }
-    else if (strcmp(cmd, "margin")     == 0) { CALL_CMD(margin);     }
-    else if (strcmp(cmd, "lmargin")    == 0) { CALL_CMD(lmargin);    }
-    else if (strcmp(cmd, "rmargin")    == 0) { CALL_CMD(rmargin);    }
-    else if (strcmp(cmd, "ljust")      == 0) { CALL_CMD(ljust);      }
-    else if (strcmp(cmd, "cjust")      == 0) { CALL_CMD(cjust);      }
-    else if (strcmp(cmd, "rjust")      == 0) { CALL_CMD(rjust);      }
-    else if (strcmp(cmd, "vspace")     == 0) { CALL_CMD(vspace);     }
-    else if (strcmp(cmd, "vfill")      == 0) { CALL_CMD(vfill);      }
-    else if (strcmp(cmd, "bullet")     == 0) { CALL_CMD(bullet);     }
-    else if (strcmp(cmd, "image")      == 0) { CALL_CMD(image);      }
-    else if (strcmp(cmd, "translate")  == 0) { CALL_CMD(translate);  }
+    if      (strcmp(cmd, "point")            == 0) { CALL_CMD(point);             }
+    else if (strcmp(cmd, "speed")            == 0) { CALL_CMD(speed);             }
+    else if (strcmp(cmd, "resolution")       == 0) { CALL_CMD(resolution);        }
+    else if (strcmp(cmd, "begin")            == 0) { CALL_CMD(begin);             }
+    else if (strcmp(cmd, "end")              == 0) { CALL_CMD(end);               }
+    else if (strcmp(cmd, "use")              == 0) { CALL_CMD(use);               }
+    else if (strcmp(cmd, "include")          == 0) { CALL_CMD(include);           }
+    else if (strcmp(cmd, "font")             == 0) { CALL_CMD(font);              }
+    else if (strcmp(cmd, "font-bold")        == 0) { CALL_CMD(font_bold);         }
+    else if (strcmp(cmd, "font-italic")      == 0) { CALL_CMD(font_italic);       }
+    else if (strcmp(cmd, "font-bold-italic") == 0) { CALL_CMD(font_bold_italic);  }
+    else if (strcmp(cmd, "size")             == 0) { CALL_CMD(size);              }
+    else if (strcmp(cmd, "bold")             == 0) { CALL_CMD(bold);              }
+    else if (strcmp(cmd, "no-bold")          == 0) { CALL_CMD(no_bold);           }
+    else if (strcmp(cmd, "italic")           == 0) { CALL_CMD(italic);            }
+    else if (strcmp(cmd, "no-italic")        == 0) { CALL_CMD(no_italic);         }
+    else if (strcmp(cmd, "underline")        == 0) { CALL_CMD(underline);         }
+    else if (strcmp(cmd, "no-underline")     == 0) { CALL_CMD(no_underline);      }
+    else if (strcmp(cmd, "bg")               == 0) { CALL_CMD(bg);                }
+    else if (strcmp(cmd, "bgx")              == 0) { CALL_CMD(bgx);               }
+    else if (strcmp(cmd, "fg")               == 0) { CALL_CMD(fg);                }
+    else if (strcmp(cmd, "fgx")              == 0) { CALL_CMD(fgx);               }
+    else if (strcmp(cmd, "margin")           == 0) { CALL_CMD(margin);            }
+    else if (strcmp(cmd, "lmargin")          == 0) { CALL_CMD(lmargin);           }
+    else if (strcmp(cmd, "rmargin")          == 0) { CALL_CMD(rmargin);           }
+    else if (strcmp(cmd, "ljust")            == 0) { CALL_CMD(ljust);             }
+    else if (strcmp(cmd, "cjust")            == 0) { CALL_CMD(cjust);             }
+    else if (strcmp(cmd, "rjust")            == 0) { CALL_CMD(rjust);             }
+    else if (strcmp(cmd, "vspace")           == 0) { CALL_CMD(vspace);            }
+    else if (strcmp(cmd, "vfill")            == 0) { CALL_CMD(vfill);             }
+    else if (strcmp(cmd, "bullet")           == 0) { CALL_CMD(bullet);            }
+    else if (strcmp(cmd, "image")            == 0) { CALL_CMD(image);             }
+    else if (strcmp(cmd, "translate")        == 0) { CALL_CMD(translate);         }
     else {
         ctx->cmd = cmd;
         BUILD_ERR("unknown command '%s'\n", cmd);
@@ -705,10 +783,14 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
     pres.images = tree_make_c(image_path_t, sdl_texture_t, strcmp);
 
     memset(&ctx, 0, sizeof(ctx));
-    ctx.font_id       = get_or_add_font_by_id(&pres, "fonts/luximr.ttf");
-    ctx.font_size     = 16;
-    ctx.r             = ctx.g = ctx.b = 0;
-    ctx.justification = JUST_L;
+    ctx.font_id             = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-Regular.otf");
+    ctx.font_bold_id        = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-Bold.otf");
+    ctx.font_italic_id      = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-Italic.otf");
+    ctx.font_bold_italic_id = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-BoldItalic.otf");
+    ctx.font_size           = 16;
+    ctx.r                   = ctx.g = ctx.b = 0;
+    ctx.justification       = JUST_L;
+    ctx.flags               = 0;
 
     /* Add a point to the beginning of the presentation. */
     ctx.elem.kind = PRES_POINT;
@@ -1009,14 +1091,17 @@ void draw_para_strings(pres_t *pres, pres_elem_t *elem) {
     pres_elem_t   *eit;
     array_t        all_text;
     char          *c;
+    int            elem_start_x;
+    SDL_Rect       urect;
+    int            underline_line_height;
 
-    font = get_or_load_font(
-            pres_get_font_name_by_id(pres, elem->font_id),
-            elem->font_size, pres->sdl_ren);
+    font = pres_get_elem_font(pres, elem);
 
     if (!font) { return; }
 
     pres->cur_font = font;
+
+    underline_line_height = font->line_height;
 
     all_text = array_make(char);
     array_traverse(elem->para_elems, eit) {
@@ -1053,6 +1138,11 @@ void draw_para_strings(pres_t *pres, pres_elem_t *elem) {
     i = 0;
 
     array_traverse(elem->para_elems, eit) {
+        font           = pres_get_elem_font(pres, eit);
+        pres->cur_font = font;
+
+        elem_start_x = pres->draw_x;
+
         bytes = (unsigned char*)array_data(eit->text);
 
         set_font_color(font, eit->r, eit->g, eit->b);
@@ -1075,7 +1165,7 @@ void draw_para_strings(pres_t *pres, pres_elem_t *elem) {
 
             array_traverse(wrap_points, wrap_it) {
                 if (*wrap_it == i) {
-                    line   += 1;
+                    line         += 1;
                     pres->draw_y += 1.25 * font->line_height;
                     pres->draw_x  = _x;
 
@@ -1089,6 +1179,8 @@ void draw_para_strings(pres_t *pres, pres_elem_t *elem) {
                             break;
                     }
 
+                    elem_start_x = pres->draw_x;
+
                     wrapped = 1;
                     break;
                 }
@@ -1096,6 +1188,26 @@ void draw_para_strings(pres_t *pres, pres_elem_t *elem) {
 
             if (IN_VIEW(pres)) {
                 SDL_RenderCopy(pres->sdl_ren, entry->texture, &srect, &drect);
+            }
+
+            if (eit->flags & PRES_UNDERLINE
+            &&  IN_VIEW(pres)) {
+                SDL_SetRenderDrawColor(pres->sdl_ren,
+                                        elem->r,
+                                        elem->g,
+                                        elem->b,
+                                        255);
+                urect.x = elem_start_x;
+                urect.y = pres->draw_y;
+                urect.w = pres->draw_x - elem_start_x + entry->pen_advance_x;
+                urect.h = 0.025 * underline_line_height;
+                urect.y += urect.h;
+                SDL_RenderFillRect(pres->sdl_ren, &urect);
+                SDL_SetRenderDrawColor(pres->sdl_ren,
+                                        pres->r,
+                                        pres->g,
+                                        pres->b,
+                                        255);
             }
 
             if (!wrapped) {
@@ -1124,9 +1236,7 @@ static void draw_bullet(pres_t *pres, pres_elem_t *elem) {
     int new_l_margin;
     int save_l_margin;
 
-    pres->cur_font = get_or_load_font(
-                        pres_get_font_name_by_id(pres, elem->font_id),
-                        elem->font_size, pres->sdl_ren);
+    pres->cur_font = pres_get_elem_font(pres, elem);
 
     set_font_color(pres->cur_font, elem->r, elem->g, elem->b);
 

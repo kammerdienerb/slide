@@ -23,18 +23,26 @@
 #define JUST_C (2)
 #define JUST_R (3)
 
+#define PRES_BOLD      (1ULL << 0)
+#define PRES_ITALIC    (1ULL << 1)
+#define PRES_UNDERLINE (1ULL << 2)
+
 typedef struct {
     int      kind;
     int      x, y, w, h;
     int      level;
     array_t  text;
     array_t  para_elems;
-    u32      font_id;
+    u32      font_id,
+             font_bold_id,
+             font_italic_id,
+             font_bold_italic_id;
     u32      font_size;
     u32      r, g, b;
     u32      l_margin, r_margin;
     int      justification;
     char    *image;
+    u32      flags;
 } pres_elem_t;
 
 typedef char *macro_name_t;

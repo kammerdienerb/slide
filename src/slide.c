@@ -11,6 +11,8 @@ int           reloading;
 int  init_video(void);
 void fini_video(void);
 
+void draw_simple_string_at(int x, int y, const char *str, font_cache_t *font);
+void draw_time(float time);
 
 static void update_window_resolution(pres_t *pres) {
     SDL_RenderSetLogicalSize(sdl_ren, pres->w, pres->h);
@@ -20,6 +22,7 @@ void reload_pres(pres_t *pres, const char *path) {
     free_presentation(pres);
     *pres = build_presentation(path, sdl_ren);
     update_window_resolution(pres);
+    printf("reloaded '%s'\n", path);
 }
 
 static void handle_hup(int sig) {
@@ -45,7 +48,8 @@ int main(int argc, char **argv) {
     SDL_Event       e;
     int             quit;
     u32             frame_start_ms, frame_elapsed_ms;
-    u64             frame;
+    u64             frame, frame_time_sum;
+    float           frame_time_avg;
     const Uint8    *key_state;
     int             save_point;
 
@@ -72,9 +76,10 @@ int main(int argc, char **argv) {
 
     register_hup_handler();
 
-    quit       = 0;
-    frame      = 0;
-    save_point = 0;
+    quit           = 0;
+    frame          = 0;
+    frame_time_sum = 0;
+    save_point     = 0;
 
     while (!quit) {
         frame_start_ms = SDL_GetTicks();
@@ -101,22 +106,23 @@ int main(int argc, char **argv) {
 
         reloading = 0;
 
+        (void)frame_time_avg;
+/*         draw_time(frame_time_avg); */
+
         SDL_RenderPresent(sdl_ren);
 
         while (SDL_PollEvent(&e) != 0) {
             if (e.type == SDL_QUIT) {
                 quit = 1;
-            } if (e.type == SDL_KEYUP) {
-                key_state = SDL_GetKeyboardState(NULL);
-                if (   (key_state[SDL_SCANCODE_LCTRL]
-                    ||  key_state[SDL_SCANCODE_RCTRL])
-                &&  key_state[SDL_SCANCODE_R]) {
-                    reload_pres(&pres, argv[1]);
-                }
             } else if (e.type == SDL_KEYDOWN) {
                 key_state = SDL_GetKeyboardState(NULL);
 
-                if (key_state[SDL_SCANCODE_Q]) {
+                if (!reloading
+                &&     (key_state[SDL_SCANCODE_LCTRL]
+                    ||  key_state[SDL_SCANCODE_RCTRL])
+                &&  key_state[SDL_SCANCODE_R]) {
+                    reloading = 1;
+                } else if (key_state[SDL_SCANCODE_Q]) {
                     quit = 1;
                 } else if (!pres.is_animating) {
                     if (key_state[SDL_SCANCODE_J]) {
@@ -135,15 +141,11 @@ int main(int argc, char **argv) {
             }
         }
 
-        if (!quit) {
-            frame_elapsed_ms = SDL_GetTicks() - frame_start_ms;
+        frame_elapsed_ms  = SDL_GetTicks() - frame_start_ms;
+        frame            += 1;
 
-            if (frame_elapsed_ms < FPS_CAP_MS) {
-                SDL_Delay(FPS_CAP_MS - frame_elapsed_ms);
-            }
-
-            frame += 1;
-        }
+        frame_time_sum   += frame_elapsed_ms;
+        frame_time_avg    = (float)frame_time_sum / (float)frame;
     }
 
     fini_video();
@@ -190,4 +192,55 @@ void fini_video(void) {
     SDL_DestroyRenderer(sdl_ren);
     SDL_DestroyWindow(sdl_win);
     SDL_Quit();
+}
+
+
+void draw_simple_string_at(int x, int y, const char *str, font_cache_t *font) {
+    int            len;
+    int            i;
+    font_entry_t  *entry;
+    SDL_Rect       srect,
+                   drect;
+    char_code_t    code;
+    int            n_bytes;
+
+    if (!str) { return; }
+
+    len = strlen(str);
+
+    for (i = 0; i < len;) {
+        code  = get_char_code(str + i, &n_bytes);
+        entry = get_glyph(font, code, sdl_ren);
+
+        srect.x = entry->x;
+        srect.y = entry->y;
+        srect.w = entry->w;
+        srect.h = entry->h;
+
+        drect.x = x + entry->adjust_x;
+        drect.y = y - entry->adjust_y;
+        drect.w = entry->w;
+        drect.h = entry->h;
+
+        SDL_RenderCopy(sdl_ren, entry->texture, &srect, &drect);
+
+        x += entry->pen_advance_x;
+        y += entry->pen_advance_y;
+
+        i += n_bytes;
+    }
+}
+
+void draw_time(float time) {
+    char          buff[32];
+    font_cache_t *font;
+    int           size;
+
+    size = 20;
+
+    sprintf(buff, "%.1fms", time);
+
+    font = get_or_load_font("fonts/luximr.ttf", size, sdl_ren);
+    set_font_color(font, 255, 0, 255);
+    draw_simple_string_at(0, pres.h - size, buff, font);
 }

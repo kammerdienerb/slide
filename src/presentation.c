@@ -791,141 +791,6 @@ sdl_texture_t pres_get_image_texture(pres_t *pres, const char *image) {
     return NULL;
 }
 
-pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
-    pres_t        pres;
-    build_ctx_t   ctx;
-    image_map_it  iit;
-
-    memset(&pres, 0, sizeof(pres));
-
-    pres.sdl_ren       = sdl_ren;
-    pres.elements      = array_make(pres_elem_t);
-    pres.fonts         = array_make(char*);
-    pres.macros        = tree_make_c(macro_name_t, array_t, strcmp);
-    pres.collect_lines = NULL;
-    pres.r             = pres.g = pres.b = 255;
-    pres.speed         = 4.0;
-    pres.w             = DEFAULT_RES_W;
-    pres.h             = DEFAULT_RES_H;
-
-    pres.bullet_strings[0] = "• ";
-    pres.bullet_strings[1] = "› ";
-    pres.bullet_strings[2] = "– ";
-
-    pres.images = tree_make_c(image_path_t, pres_image_data_t, strcmp);
-
-    memset(&ctx, 0, sizeof(ctx));
-    ctx.font_id             = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-Regular.otf");
-    ctx.font_bold_id        = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-Bold.otf");
-    ctx.font_italic_id      = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-Italic.otf");
-    ctx.font_bold_italic_id = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-BoldItalic.otf");
-    ctx.font_size           = 16;
-    ctx.r                   = ctx.g = ctx.b = 0;
-    ctx.justification       = JUST_L;
-    ctx.flags               = 0;
-
-    ctx.tp = tp_make(8);
-
-    /* Add a point to the beginning of the presentation. */
-    ctx.elem.kind = PRES_POINT;
-    commit_element(&pres, &ctx);
-    ctx.elem.kind = 0;
-
-    if (!do_file(&pres, &ctx, path)) {
-        ERR("could not open presentation file '%s'\n", path);
-    }
-
-    tp_wait(ctx.tp);
-    tp_stop(ctx.tp, TP_GRACEFUL);
-    tp_free(ctx.tp);
-
-    (void)iit;
-/*     tree_traverse(pres.images, iit) { */
-/*         pres_create_image_texture(&pres, &tree_it_val(iit)); */
-/*     } */
-
-    return pres;
-}
-
-void free_presentation(pres_t *pres) {
-    image_map_it       iit;
-    pres_image_data_t *image_data;
-    macro_map_it       mit;
-    char             **lit;
-    char             **fit;
-    pres_elem_t       *eit1,
-                      *eit2;
-
-    tree_traverse(pres->images, iit) {
-        free(tree_it_key(iit));
-        image_data = &tree_it_val(iit);
-
-        if (image_data->image_data) {
-            free(image_data);
-        }
-        if (image_data->texture) {
-            SDL_DestroyTexture(image_data->texture);
-        }
-    }
-    tree_free(pres->images);
-
-    tree_traverse(pres->macros, mit) {
-        free(tree_it_key(mit));
-        array_traverse(tree_it_val(mit), lit) {
-            free(*lit);
-        }
-        array_free(tree_it_val(mit));
-    }
-    tree_free(pres->macros);
-
-    array_traverse(pres->fonts, fit) { free(*fit); }
-    array_free(pres->fonts);
-
-    array_traverse(pres->elements, eit1) {
-        if (eit1->kind == PRES_PARA
-        ||  eit1->kind == PRES_BULLET) {
-            array_traverse(eit1->para_elems, eit2) {
-                array_free(eit2->text);
-            }
-            array_free(eit1->para_elems);
-        }
-    }
-    array_free(pres->elements);
-
-}
-
-
-void pres_clear_and_draw_bg(pres_t *pres) {
-    SDL_Rect r;
-    int      sum;
-
-    sum = pres->r + pres->g + pres->g;
-    if (sum > ((3 * 255) / 2)) {
-        SDL_SetRenderDrawColor(pres->sdl_ren, 0, 0, 0, 255);
-    } else {
-        SDL_SetRenderDrawColor(pres->sdl_ren, 255, 255, 255, 255);
-    }
-    SDL_RenderClear(pres->sdl_ren);
-
-    r.x = r.y = 0;
-    r.w = pres->w;
-    r.h = pres->h;
-
-    SDL_SetRenderDrawColor(pres->sdl_ren,
-                           pres->r,
-                           pres->g,
-                           pres->b,
-                           255);
-
-    SDL_RenderFillRect(pres->sdl_ren, &r);
-
-    SDL_SetRenderDrawColor(pres->sdl_ren,
-                           255 - pres->r,
-                           255 - pres->g,
-                           255 - pres->b,
-                           255);
-}
-
 static array_t get_wrap_points(pres_t *pres, const unsigned char *bytes, int l_margin, int r_margin, array_t *line_widths) {
     int           len;
     array_t       wrap_points;
@@ -1003,6 +868,176 @@ static array_t get_wrap_points(pres_t *pres, const unsigned char *bytes, int l_m
     array_push(*line_widths, line_width);
 
     return wrap_points;
+}
+
+static void compute_para_text(pres_t *pres, pres_elem_t *elem) {
+    pres_elem_t *eit;
+
+    elem->all_text = array_make(char);
+    array_traverse(elem->para_elems, eit) {
+        array_push_n(elem->all_text,
+                     array_data(eit->text),
+                     array_len(eit->text));
+    }
+    array_zero_term(elem->all_text);
+
+    pres->cur_font = pres_get_elem_font(pres, elem);
+
+    elem->wrap_points = get_wrap_points(pres,
+                                        array_data(elem->all_text),
+                                        elem->l_margin, elem->r_margin,
+                                        &elem->line_widths);
+}
+
+static void compute_text(pres_t *pres) {
+    pres_elem_t *elem;
+
+    array_traverse(pres->elements, elem) {
+        if (elem->kind == PRES_PARA
+        ||  elem->kind == PRES_BULLET) {
+            compute_para_text(pres, elem);
+        }
+    }
+}
+
+pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
+    pres_t        pres;
+    build_ctx_t   ctx;
+    image_map_it  iit;
+
+    memset(&pres, 0, sizeof(pres));
+
+    pres.sdl_ren       = sdl_ren;
+    pres.elements      = array_make(pres_elem_t);
+    pres.fonts         = array_make(char*);
+    pres.macros        = tree_make_c(macro_name_t, array_t, strcmp);
+    pres.collect_lines = NULL;
+    pres.r             = pres.g = pres.b = 255;
+    pres.speed         = 4.0;
+    pres.w             = DEFAULT_RES_W;
+    pres.h             = DEFAULT_RES_H;
+
+    pres.bullet_strings[0] = "• ";
+    pres.bullet_strings[1] = "› ";
+    pres.bullet_strings[2] = "– ";
+
+    pres.images = tree_make_c(image_path_t, pres_image_data_t, strcmp);
+
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.font_id             = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-Regular.otf");
+    ctx.font_bold_id        = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-Bold.otf");
+    ctx.font_italic_id      = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-Italic.otf");
+    ctx.font_bold_italic_id = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-BoldItalic.otf");
+    ctx.font_size           = 16;
+    ctx.r                   = ctx.g = ctx.b = 0;
+    ctx.justification       = JUST_L;
+    ctx.flags               = 0;
+
+    ctx.tp = tp_make(8);
+
+    /* Add a point to the beginning of the presentation. */
+    ctx.elem.kind = PRES_POINT;
+    commit_element(&pres, &ctx);
+    ctx.elem.kind = 0;
+
+    if (!do_file(&pres, &ctx, path)) {
+        ERR("could not open presentation file '%s'\n", path);
+    }
+
+    tp_wait(ctx.tp);
+    tp_stop(ctx.tp, TP_GRACEFUL);
+    tp_free(ctx.tp);
+
+    (void)iit;
+/*     tree_traverse(pres.images, iit) { */
+/*         pres_create_image_texture(&pres, &tree_it_val(iit)); */
+/*     } */
+
+    compute_text(&pres);
+
+    return pres;
+}
+
+void free_presentation(pres_t *pres) {
+    image_map_it       iit;
+    pres_image_data_t *image_data;
+    macro_map_it       mit;
+    char             **lit;
+    char             **fit;
+    pres_elem_t       *eit1,
+                      *eit2;
+
+    tree_traverse(pres->images, iit) {
+        free(tree_it_key(iit));
+        image_data = &tree_it_val(iit);
+
+        if (image_data->image_data) {
+            free(image_data);
+        }
+        if (image_data->texture) {
+            SDL_DestroyTexture(image_data->texture);
+        }
+    }
+    tree_free(pres->images);
+
+    tree_traverse(pres->macros, mit) {
+        free(tree_it_key(mit));
+        array_traverse(tree_it_val(mit), lit) {
+            free(*lit);
+        }
+        array_free(tree_it_val(mit));
+    }
+    tree_free(pres->macros);
+
+    array_traverse(pres->fonts, fit) { free(*fit); }
+    array_free(pres->fonts);
+
+    array_traverse(pres->elements, eit1) {
+        if (eit1->kind == PRES_PARA
+        ||  eit1->kind == PRES_BULLET) {
+            array_traverse(eit1->para_elems, eit2) {
+                array_free(eit2->text);
+            }
+            array_free(eit1->para_elems);
+            array_free(eit1->all_text);
+            array_free(eit1->wrap_points);
+            array_free(eit1->line_widths);
+        }
+    }
+    array_free(pres->elements);
+
+}
+
+
+void pres_clear_and_draw_bg(pres_t *pres) {
+    SDL_Rect r;
+    int      sum;
+
+    sum = pres->r + pres->g + pres->g;
+    if (sum > ((3 * 255) / 2)) {
+        SDL_SetRenderDrawColor(pres->sdl_ren, 0, 0, 0, 255);
+    } else {
+        SDL_SetRenderDrawColor(pres->sdl_ren, 255, 255, 255, 255);
+    }
+    SDL_RenderClear(pres->sdl_ren);
+
+    r.x = r.y = 0;
+    r.w = pres->w;
+    r.h = pres->h;
+
+    SDL_SetRenderDrawColor(pres->sdl_ren,
+                           pres->r,
+                           pres->g,
+                           pres->b,
+                           255);
+
+    SDL_RenderFillRect(pres->sdl_ren, &r);
+
+    SDL_SetRenderDrawColor(pres->sdl_ren,
+                           255 - pres->r,
+                           255 - pres->g,
+                           255 - pres->b,
+                           255);
 }
 
 #define IN_VIEW(pres) \
@@ -1118,13 +1153,11 @@ void draw_para_strings(pres_t *pres, pres_elem_t *elem) {
     array_t        line_widths;
     int           *wrap_it;
     int            wrapped;
-    unsigned char *bytes;
     char_code_t    code;
     int            n_bytes;
     int            line;
     font_cache_t  *font;
     pres_elem_t   *eit;
-    array_t        all_text;
     char          *c;
     int            elem_start_x;
     SDL_Rect       urect;
@@ -1138,14 +1171,6 @@ void draw_para_strings(pres_t *pres, pres_elem_t *elem) {
 
     underline_line_height = font->line_height;
 
-    all_text = array_make(char);
-    array_traverse(elem->para_elems, eit) {
-        array_push_n(all_text,
-                     array_data(eit->text),
-                     array_len(eit->text));
-    }
-    array_zero_term(all_text);
-
     _x = pres->draw_x + elem->l_margin;
     _y = pres->draw_y;
     (void)_y;
@@ -1153,10 +1178,9 @@ void draw_para_strings(pres_t *pres, pres_elem_t *elem) {
     pres->draw_x  = _x;
     pres->draw_y += font->line_height;
 
-    bytes       = (unsigned char*)array_data(all_text);
-    wrap_points = get_wrap_points(pres, bytes,
-                                  elem->l_margin, elem->r_margin,
-                                  &line_widths);
+    /* compute_para_text() */
+    wrap_points = elem->wrap_points;
+    line_widths = elem->line_widths;
 
     line = 0;
 
@@ -1177,8 +1201,6 @@ void draw_para_strings(pres_t *pres, pres_elem_t *elem) {
         pres->cur_font = font;
 
         elem_start_x = pres->draw_x;
-
-        bytes = (unsigned char*)array_data(eit->text);
 
         set_font_color(font, eit->r, eit->g, eit->b);
 
@@ -1254,9 +1276,8 @@ void draw_para_strings(pres_t *pres, pres_elem_t *elem) {
         }
     }
 
-    array_free(line_widths);
-    array_free(wrap_points);
-    array_free(all_text);
+/*     array_free(line_widths); */
+/*     array_free(wrap_points); */
 }
 
 static void draw_para(pres_t *pres, pres_elem_t *elem) {
@@ -1295,9 +1316,6 @@ static void draw_bullet(pres_t *pres, pres_elem_t *elem) {
     elem->l_margin = save_l_margin;
 
     pres->is_translating = 0;
-}
-
-static void draw_para_cont(pres_t *pres, pres_elem_t *elem) {
 }
 
 static void draw_break(pres_t *pres, pres_elem_t *elem) {
@@ -1404,7 +1422,6 @@ void draw_presentation(pres_t *pres) {
         switch (elem->kind) {
             case PRES_PARA:      draw_para(pres, elem);      break;
             case PRES_BULLET:    draw_bullet(pres, elem);    break;
-            case PRES_PARA_ELEM: draw_para_cont(pres, elem); break;
             case PRES_BREAK:     draw_break(pres, elem);     break;
             case PRES_VSPACE:    draw_vspace(pres, elem);    break;
             case PRES_VFILL:     draw_vfill(pres, elem);     break;

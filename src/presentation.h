@@ -43,6 +43,10 @@ typedef struct {
     int      justification;
     char    *image;
     u32      flags;
+
+    array_t  all_text;
+    array_t  wrap_points;
+    array_t  line_widths;
 } pres_elem_t;
 
 typedef char *macro_name_t;

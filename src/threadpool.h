@@ -165,8 +165,6 @@ static void _tp_thread_task(void *_tp) {
         }
     }
 
-    tp->n_started -= 1;
-
     pthread_mutex_unlock(&tp->mutex);
 
     pthread_exit(NULL);

@@ -250,13 +250,19 @@ DEF_CMD(point) {
 }
 
 DEF_CMD(speed) {
-    GET_F(1);
-    if (F < 0.0) {
-        F = 0.1;
-    } else if (F > 100.0) {
-        F = 100.0;
+    GET_S(1);
+
+    if (strcmp(S, "inf")      == 0
+    ||  strcmp(S, "infin")    == 0
+    ||  strcmp(S, "infinity") == 0) {
+        pres->speed = INFINITY;
+    } else {
+        GET_F(1);
+        if (F < 0.0) {
+            F = 0.1;
+        }
+        pres->speed = F;
     }
-    pres->speed = F;
 }
 
 DEF_CMD(resolution) {
@@ -1426,9 +1432,14 @@ static void do_animation(pres_t *pres) {
             }
 
             if (pres->view_y != pres->save_points[pres->point]) {
-                pres->dst_view_y   = pres->save_points[pres->point];
-                pres->anim_t       = gettime_ns();
-                pres->is_animating = 1;
+                if (pres->speed == INFINITY) {
+                    printf("FAST\n");
+                    pres->view_y = pres->save_points[pres->point];
+                } else {
+                    pres->dst_view_y   = pres->save_points[pres->point];
+                    pres->anim_t       = gettime_ns();
+                    pres->is_animating = 1;
+                }
             }
         }
     }

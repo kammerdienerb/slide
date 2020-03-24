@@ -889,14 +889,38 @@ static void compute_para_text(pres_t *pres, pres_elem_t *elem) {
                                         &elem->line_widths);
 }
 
+static void compute_bullet_text(pres_t *pres, pres_elem_t *elem) {
+    pres_elem_t *eit;
+    int          new_l_margin;
+
+    elem->all_text = array_make(char);
+    array_traverse(elem->para_elems, eit) {
+        array_push_n(elem->all_text,
+                     array_data(eit->text),
+                     array_len(eit->text));
+    }
+    array_zero_term(elem->all_text);
+
+    pres->cur_font = pres_get_elem_font(pres, elem);
+
+    new_l_margin =   elem->l_margin
+                   + ((0.05 * (elem->level - 1)) * pres->w);
+
+    elem->wrap_points = get_wrap_points(pres,
+                                        array_data(elem->all_text),
+                                        new_l_margin, elem->r_margin,
+                                        &elem->line_widths);
+}
+
 static void compute_text(pres_t *pres) {
     pres_elem_t *elem;
 
 
     array_traverse(pres->elements, elem) {
-        if (elem->kind == PRES_PARA
-        ||  elem->kind == PRES_BULLET) {
+        if (elem->kind == PRES_PARA) {
             compute_para_text(pres, elem);
+        } else if (elem->kind == PRES_BULLET) {
+            compute_bullet_text(pres, elem);
         }
     }
 }
@@ -1323,7 +1347,7 @@ static void draw_bullet(pres_t *pres, pres_elem_t *elem) {
 
 static void draw_break(pres_t *pres, pres_elem_t *elem) {
     if (pres->cur_font) {
-        pres->draw_y += 1.25 * pres->cur_font->line_height;
+        pres->draw_y += 0.75 * pres->cur_font->line_height;
     }
 
     pres->is_translating = 0;

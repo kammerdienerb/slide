@@ -892,6 +892,7 @@ static void compute_para_text(pres_t *pres, pres_elem_t *elem) {
 static void compute_text(pres_t *pres) {
     pres_elem_t *elem;
 
+
     array_traverse(pres->elements, elem) {
         if (elem->kind == PRES_PARA
         ||  elem->kind == PRES_BULLET) {
@@ -948,12 +949,14 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
     tp_stop(ctx.tp, TP_GRACEFUL);
     tp_free(ctx.tp);
 
+    TIME_ON(compute_text) {
+        compute_text(&pres);
+    } TIME_OFF(compute_text);
+
     (void)iit;
 /*     tree_traverse(pres.images, iit) { */
 /*         pres_create_image_texture(&pres, &tree_it_val(iit)); */
 /*     } */
-
-    compute_text(&pres);
 
     return pres;
 }
@@ -972,7 +975,7 @@ void free_presentation(pres_t *pres) {
         image_data = &tree_it_val(iit);
 
         if (image_data->image_data) {
-            free(image_data);
+            free(image_data->image_data);
         }
         if (image_data->texture) {
             SDL_DestroyTexture(image_data->texture);
@@ -1005,9 +1008,7 @@ void free_presentation(pres_t *pres) {
         }
     }
     array_free(pres->elements);
-
 }
-
 
 void pres_clear_and_draw_bg(pres_t *pres) {
     SDL_Rect r;
@@ -1202,7 +1203,9 @@ void draw_para_strings(pres_t *pres, pres_elem_t *elem) {
 
         elem_start_x = pres->draw_x;
 
-        set_font_color(font, eit->r, eit->g, eit->b);
+        if (IN_VIEW(pres)) {
+            set_font_color(font, eit->r, eit->g, eit->b);
+        }
 
         array_traverse(eit->text, c) {
             wrapped = 0;
@@ -1345,18 +1348,17 @@ static void draw_image(pres_t *pres, pres_elem_t *elem) {
     sdl_texture_t image_texture;
     SDL_Rect      drect;
 
-    image_texture = pres_get_image_texture(pres, elem->image);
-
-    drect.x = pres->draw_x;
-    drect.y = pres->draw_y;
-    drect.w = elem->w;
-    drect.h = elem->h;
-
     if (IN_VIEW(pres)) {
+        drect.x = pres->draw_x;
+        drect.y = pres->draw_y;
+        drect.w = elem->w;
+        drect.h = elem->h;
+
+        image_texture = pres_get_image_texture(pres, elem->image);
         SDL_RenderCopy(pres->sdl_ren, image_texture, NULL, &drect);
     }
 
-    pres->draw_y         += drect.h;
+    pres->draw_y         += elem->h;
     pres->is_translating  = 0;
 }
 
@@ -1435,6 +1437,7 @@ void draw_presentation(pres_t *pres) {
 }
 
 void update_presentation(pres_t *pres) {
+    pres->movement_started = 0;
     do_animation(pres);
 }
 
@@ -1453,12 +1456,16 @@ void pres_restore_point(pres_t *pres, int point) {
 
     pres->point  = point;
     pres->view_y = pres->save_points[pres->point];
+
+    pres->movement_started = 1;
 }
 
 void pres_next_point(pres_t *pres) {
     if (!pres->is_animating) {
         pres->point += 1;
     }
+
+    pres->movement_started = 1;
 }
 
 void pres_prev_point(pres_t *pres) {
@@ -1467,6 +1474,8 @@ void pres_prev_point(pres_t *pres) {
             pres->point -= 1;
         }
     }
+
+    pres->movement_started = 1;
 }
 
 void pres_first_point(pres_t *pres) {
@@ -1474,6 +1483,8 @@ void pres_first_point(pres_t *pres) {
         pres->point = 0;
     }
     pres->view_y = pres->save_points[pres->point];
+
+    pres->movement_started = 1;
 }
 
 void pres_last_point(pres_t *pres) {
@@ -1481,4 +1492,6 @@ void pres_last_point(pres_t *pres) {
         pres->point = pres->n_points - 1;
     }
     pres->view_y = pres->save_points[pres->point];
+
+    pres->movement_started = 1;
 }

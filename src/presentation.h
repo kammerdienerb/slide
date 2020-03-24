@@ -87,6 +87,7 @@ typedef struct {
     int           dst_view_y;
     u64           anim_t;
     int           is_animating;
+    int           movement_started;
     int           is_translating;
 } pres_t;
 

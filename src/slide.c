@@ -8,6 +8,8 @@ SDL_Renderer *sdl_ren;
 SDL_Window   *sdl_win;
 int           reloading;
 
+void handle_input(int *quit, int *reloading, int *winch);
+
 int  init_video(void);
 void fini_video(void);
 
@@ -45,19 +47,26 @@ static void register_hup_handler(void) {
 }
 
 int main(int argc, char **argv) {
-    SDL_Event       e;
     int             quit;
+    u32             start_ms;
     u32             frame_start_ms, frame_elapsed_ms;
-    u64             frame, frame_time_sum;
-    float           frame_time_avg;
-    const Uint8    *key_state;
+    u64             frame;
+    float           last_frame_time;
     int             save_point;
+    int             should_draw;
+    int             sleep_ms;
+    int             winch;
+    int             was_animating;
 
     sdl_ren = NULL;
 
     if (argc != 2) {
         ERR("usage: %s [FILE]\n", argv[0]);
     }
+
+    start_ms = SDL_GetTicks();
+
+    printf("pid = %d\n", getpid());
 
     TIME_ON(init_video) {
         init_video();
@@ -76,10 +85,11 @@ int main(int argc, char **argv) {
 
     register_hup_handler();
 
-    quit           = 0;
-    frame          = 0;
-    frame_time_sum = 0;
-    save_point     = 0;
+    quit          = 0;
+    frame         = 0;
+    save_point    = 0;
+    winch         = 0;
+    was_animating = 0;
 
     while (!quit) {
         frame_start_ms = SDL_GetTicks();
@@ -89,7 +99,23 @@ int main(int argc, char **argv) {
             reload_pres(&pres, pres_path);
         }
 
-        draw_presentation(&pres);
+        handle_input(&quit, &reloading, &winch);
+
+        should_draw   =    (frame <= DISPLAY_DELAY_FRAMES + 1)
+                        || was_animating
+                        || pres.is_animating
+                        || pres.movement_started
+                        || reloading
+                        || winch
+                        || (frame % NON_ANIM_DRAW_INTERVAL == 0);
+        winch         =    0;
+
+        was_animating = pres.is_animating;
+
+        if (should_draw) {
+            draw_presentation(&pres);
+        }
+
         update_presentation(&pres);
 
         if (reloading) {
@@ -97,6 +123,7 @@ int main(int argc, char **argv) {
         }
 
         if (frame == DISPLAY_DELAY_FRAMES) {
+            printf("time to first draw: %ums\n", SDL_GetTicks() - start_ms);
             SDL_ShowWindow(sdl_win);
         }
 
@@ -106,51 +133,66 @@ int main(int argc, char **argv) {
 
         reloading = 0;
 
-        (void)frame_time_avg;
-/*         draw_time(frame_time_avg); */
+        (void)last_frame_time;
+/*         draw_time(last_frame_time); */
 
-        SDL_RenderPresent(sdl_ren);
-
-        while (SDL_PollEvent(&e) != 0) {
-            if (e.type == SDL_QUIT) {
-                quit = 1;
-            } else if (e.type == SDL_KEYDOWN) {
-                key_state = SDL_GetKeyboardState(NULL);
-
-                if (!reloading
-                &&     (key_state[SDL_SCANCODE_LCTRL]
-                    ||  key_state[SDL_SCANCODE_RCTRL])
-                &&  key_state[SDL_SCANCODE_R]) {
-                    reloading = 1;
-                } else if (key_state[SDL_SCANCODE_Q]) {
-                    quit = 1;
-                } else if (!pres.is_animating) {
-                    if (key_state[SDL_SCANCODE_J]) {
-                        pres_next_point(&pres);
-                    } else if (key_state[SDL_SCANCODE_K]) {
-                        pres_prev_point(&pres);
-                    } else if (key_state[SDL_SCANCODE_G]) {
-                        if (key_state[SDL_SCANCODE_LSHIFT]
-                        ||  key_state[SDL_SCANCODE_RSHIFT]) {
-                            pres_last_point(&pres);
-                        } else {
-                            pres_first_point(&pres);
-                        }
-                    }
-                }
-            }
+        if (should_draw) {
+            SDL_RenderPresent(sdl_ren);
         }
 
         frame_elapsed_ms  = SDL_GetTicks() - frame_start_ms;
         frame            += 1;
 
-        frame_time_sum   += frame_elapsed_ms;
-        frame_time_avg    = (float)frame_time_sum / (float)frame;
+        last_frame_time   = (float)frame_elapsed_ms;
+
+        if (!should_draw && !was_animating) {
+            sleep_ms = FPS_CAP_MS - frame_elapsed_ms;
+            if (sleep_ms > 0) {
+                SDL_Delay(sleep_ms);
+            }
+        }
     }
 
     fini_video();
 
     return 0;
+}
+
+void handle_input(int *quit, int *reloading, int *winch) {
+    SDL_Event    e;
+    const Uint8 *key_state;
+
+    while (SDL_PollEvent(&e) != 0) {
+        if (e.type == SDL_QUIT) {
+            *quit = 1;
+        } else if (e.type == SDL_KEYDOWN) {
+            key_state = SDL_GetKeyboardState(NULL);
+
+            if (!reloading
+            &&     (key_state[SDL_SCANCODE_LCTRL]
+                ||  key_state[SDL_SCANCODE_RCTRL])
+            &&  key_state[SDL_SCANCODE_R]) {
+                *reloading = 1;
+            } else if (key_state[SDL_SCANCODE_Q]) {
+                *quit = 1;
+            } else if (!pres.is_animating && !pres.movement_started) {
+                if (key_state[SDL_SCANCODE_J]) {
+                    pres_next_point(&pres);
+                } else if (key_state[SDL_SCANCODE_K]) {
+                    pres_prev_point(&pres);
+                } else if (key_state[SDL_SCANCODE_G]) {
+                    if (key_state[SDL_SCANCODE_LSHIFT]
+                    ||  key_state[SDL_SCANCODE_RSHIFT]) {
+                        pres_last_point(&pres);
+                    } else {
+                        pres_first_point(&pres);
+                    }
+                }
+            }
+        } else if (e.type == SDL_WINDOWEVENT) {
+            *winch = 1;
+        }
+    }
 }
 
 int init_video(void) {

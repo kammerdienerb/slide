@@ -1176,7 +1176,6 @@ void draw_string(pres_t *pres, const char *str, int l_margin, int r_margin, int 
 
 void draw_para_strings(pres_t *pres, pres_elem_t *elem) {
     int            _x, _y;
-    int            i;
     font_entry_t  *entry;
     SDL_Rect       srect,
                    drect;
@@ -1188,6 +1187,7 @@ void draw_para_strings(pres_t *pres, pres_elem_t *elem) {
     int            n_bytes;
     int            line;
     font_cache_t  *font;
+    int            i;
     pres_elem_t   *eit;
     char          *c;
     int            elem_start_x;
@@ -1305,6 +1305,8 @@ void draw_para_strings(pres_t *pres, pres_elem_t *elem) {
             }
             pres->draw_y += entry->pen_advance_y;
 
+            /* Update our iterator if this was a unicode multibyte sequence. */
+            c += n_bytes - 1;
             i += n_bytes;
         }
     }

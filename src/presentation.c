@@ -480,6 +480,7 @@ DEF_CMD(bullet) {
     ctx->elem.level      = I;
     ctx->elem.kind       = PRES_BULLET;
     ctx->elem.para_elems = array_make(pres_elem_t);
+    format_elem(ctx, &ctx->elem);
 }
 
 typedef struct {
@@ -638,8 +639,6 @@ do {                              \
 #undef GET_F
 #undef GET_S
 
-char space = ' ';
-
 static void do_para(pres_t *pres, build_ctx_t *ctx, char *line, int line_len) {
     pres_elem_t elem;
 
@@ -648,6 +647,7 @@ static void do_para(pres_t *pres, build_ctx_t *ctx, char *line, int line_len) {
         commit_element(pres, ctx);
         ctx->elem.kind       = PRES_PARA;
         ctx->elem.para_elems = array_make(pres_elem_t);
+        format_elem(ctx, &ctx->elem);
     }
 
     memset(&elem, 0, sizeof(elem));
@@ -1433,7 +1433,6 @@ static void do_animation(pres_t *pres) {
 
             if (pres->view_y != pres->save_points[pres->point]) {
                 if (pres->speed == INFINITY) {
-                    printf("FAST\n");
                     pres->view_y = pres->save_points[pres->point];
                 } else {
                     pres->dst_view_y   = pres->save_points[pres->point];

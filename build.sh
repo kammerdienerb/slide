@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-CFG="-g -O0"
-# CFG="-O3"
+# CFG="-g -O0"
+CFG="-O3"
 gcc -Wall -c src/threadpool.c   -I src $(pkg-config --cflags freetype2) ${CFG} -o src/threadpool.o   &
 gcc -Wall -c src/internal.c     -I src $(pkg-config --cflags freetype2) ${CFG} -o src/internal.o     &
 gcc -Wall -c src/stb_image.c    -I src $(pkg-config --cflags freetype2) ${CFG} -o src/stb_image.o    &

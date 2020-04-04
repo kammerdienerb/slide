@@ -68,6 +68,8 @@ typedef tree(image_path_t, pres_image_data_t)    image_map_t;
 typedef tree_it(image_path_t, pres_image_data_t) image_map_it;
 
 typedef struct {
+    pthread_mutex_t err_mtx;
+
     SDL_Renderer *sdl_ren;
     array_t       elements;
     array_t       fonts;

@@ -192,11 +192,12 @@ static void commit_element(pres_t *pres, build_ctx_t *ctx) {
     memset(&ctx->elem, 0, sizeof(ctx->elem));
 }
 
-static int   I;
-static float F;
-static char *S;
+static int    I;
+static float  F;
+static char  *S;
 
 #define BUILD_ERR(fmt, ...) do {                                 \
+pthread_mutex_lock(&pres->err_mtx);                              \
 fprintf(stderr, "[slide] ERROR: %s :: %d in command '%s': " fmt, \
         ctx->path, ctx->line, ctx->cmd, ##__VA_ARGS__);          \
     exit(1);                                                     \
@@ -521,6 +522,7 @@ static void async_load_image(void *arg) {
 
     printf("[async_image_load] loaded '%s'\n", path);
 
+    free(ctx);
     free(arg);
 }
 
@@ -538,10 +540,11 @@ static image_path_t ensure_image(pres_t *pres, build_ctx_t *ctx, const char *pat
     image_data.image_data = image_data.texture = NULL;
     it = tree_insert(pres->images, strdup(path), image_data);
 
-    payload = malloc(sizeof(*payload));
+    payload      = malloc(sizeof(*payload));
+    payload->ctx = malloc(sizeof(*payload->ctx));
+    memcpy(payload->ctx, ctx, sizeof(*ctx));
 
     payload->pres        = pres;
-    payload->ctx         = ctx;
     payload->path        = tree_it_key(it);
     payload->image_data  = &tree_it_val(it);
 
@@ -938,6 +941,8 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
 
     memset(&pres, 0, sizeof(pres));
 
+    pthread_mutex_init(&pres.err_mtx, NULL);
+
     pres.sdl_ren       = sdl_ren;
     pres.elements      = array_make(pres_elem_t);
     pres.fonts         = array_make(char*);
@@ -975,13 +980,13 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
         ERR("could not open presentation file '%s'\n", path);
     }
 
-    tp_wait(ctx.tp);
-    tp_stop(ctx.tp, TP_GRACEFUL);
-    tp_free(ctx.tp);
-
     TIME_ON(compute_text) {
         compute_text(&pres);
     } TIME_OFF(compute_text);
+
+    tp_wait(ctx.tp);
+    tp_stop(ctx.tp, TP_GRACEFUL);
+    tp_free(ctx.tp);
 
     (void)iit;
 /*     tree_traverse(pres.images, iit) { */
@@ -1038,6 +1043,8 @@ void free_presentation(pres_t *pres) {
         }
     }
     array_free(pres->elements);
+
+    pthread_mutex_destroy(&pres->err_mtx);
 }
 
 void pres_clear_and_draw_bg(pres_t *pres) {

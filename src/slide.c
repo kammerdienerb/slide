@@ -168,7 +168,7 @@ void handle_input(int *quit, int *reloading, int *winch) {
         } else if (e.type == SDL_KEYDOWN) {
             key_state = SDL_GetKeyboardState(NULL);
 
-            if (!reloading
+            if (!*reloading
             &&     (key_state[SDL_SCANCODE_LCTRL]
                 ||  key_state[SDL_SCANCODE_RCTRL])
             &&  key_state[SDL_SCANCODE_R]) {

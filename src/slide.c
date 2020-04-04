@@ -2,6 +2,56 @@
 #include "font.h"
 #include "presentation.h"
 
+typedef struct {
+    int         renderer; /* 0 = hardware, 1 = software */
+    const char *path;
+} options_t;
+
+options_t options;
+
+static char *usage =
+"usage: slide [options] FILE\n"
+"\n"
+"options:\n"
+"\n"
+"--renderer\n"
+"    Select the rendering method:\n"
+"        'hw': (default) use harware rendering\n"
+"        'sw': use a software renderer.\n"
+"--help\n"
+"    Show this information.\n"
+"\n"
+;
+
+static void err_usage(void)   { ERR("%s", usage);    }
+static void print_usage(void) { printf("%s", usage); }
+
+static void parse_options(int argc, char **argv) {
+    int i;
+
+    memset(&options, 0, sizeof(options));
+
+    for (i = 1; i < argc; i += 1) {
+        if (strncmp(argv[i], "--renderer=", 11) == 0) {
+            if (strcmp(argv[i] + 11, "hw") == 0) {
+                options.renderer = 0;
+            } else if (strcmp(argv[i] + 11, "sw") == 0) {
+                options.renderer = 1;
+            } else {
+                err_usage();
+            }
+        } else if (strcmp(argv[i], "--help") == 0) {
+            print_usage();
+            exit(0);
+        } else {
+            if (options.path) {
+                err_usage();
+            }
+            options.path = argv[i];
+        }
+    }
+}
+
 pres_t        pres;
 const char   *pres_path;
 SDL_Renderer *sdl_ren;
@@ -60,9 +110,8 @@ int main(int argc, char **argv) {
 
     sdl_ren = NULL;
 
-    if (argc != 2) {
-        ERR("usage: %s [FILE]\n", argv[0]);
-    }
+    parse_options(argc, argv);
+    pres_path = options.path;
 
     start_ms = SDL_GetTicks();
 
@@ -77,7 +126,6 @@ int main(int argc, char **argv) {
     } TIME_OFF(init_font);
 
     TIME_ON(build_presentation) {
-        pres_path = argv[1];
         pres = build_presentation(pres_path, sdl_ren);
         update_window_resolution(&pres);
         SDL_SetWindowSize(sdl_win, pres.w, pres.h);
@@ -138,6 +186,7 @@ int main(int argc, char **argv) {
 
         if (should_draw) {
             SDL_RenderPresent(sdl_ren);
+            SDL_Delay(0);
         }
 
         frame_elapsed_ms  = SDL_GetTicks() - frame_start_ms;
@@ -196,13 +245,21 @@ void handle_input(int *quit, int *reloading, int *winch) {
 }
 
 int init_video(void) {
+    int render_flags;
+
+    render_flags = SDL_RENDERER_ACCELERATED;
+
+    if (options.renderer == 0) {
+        render_flags = SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC;
+    } else if (options.renderer == 1) {
+        render_flags = SDL_RENDERER_SOFTWARE;
+    }
 
     TIME_ON(sdl_init_video) {
         if (SDL_InitSubSystem(SDL_INIT_VIDEO) < 0) {
             ERR("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
         }
     } TIME_OFF(sdl_init_video);
-
 
     TIME_ON(sdl_create_window) {
         sdl_win = SDL_CreateWindow("slide",
@@ -214,11 +271,8 @@ int init_video(void) {
         }
     } TIME_OFF(sdl_create_window);
 
-
     TIME_ON(sdl_create_renderer) {
-        sdl_ren = SDL_CreateRenderer(sdl_win,
-                                     -1,
-                                     SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+        sdl_ren = SDL_CreateRenderer(sdl_win, -1, render_flags);
     } TIME_OFF(sdl_create_renderer);
 
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");  // make the scaled rendering look smoother.

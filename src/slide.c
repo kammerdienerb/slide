@@ -9,6 +9,20 @@ typedef struct {
 
 options_t options;
 
+static void get_env_options(void) {
+    char *val;
+
+    if ((val = getenv("SLIDE_RENDERER"))) {
+        if (strcmp(val, "hw") == 0) {
+            options.renderer = 0;
+        } else if (strcmp(val, "sw") == 0) {
+            options.renderer = 1;
+        } else {
+            printf("slide: invalid value for 'SLIDE_RENDERER'\n");
+        }
+    }
+}
+
 static char *usage =
 "usage: slide [options] FILE\n"
 "\n"
@@ -28,8 +42,6 @@ static void print_usage(void) { printf("%s", usage); }
 
 static void parse_options(int argc, char **argv) {
     int i;
-
-    memset(&options, 0, sizeof(options));
 
     for (i = 1; i < argc; i += 1) {
         if (strncmp(argv[i], "--renderer=", 11) == 0) {
@@ -110,8 +122,12 @@ int main(int argc, char **argv) {
 
     sdl_ren = NULL;
 
+    memset(&options, 0, sizeof(options));
+    get_env_options();
     parse_options(argc, argv);
     pres_path = options.path;
+
+    if (!pres_path) { err_usage(); }
 
     start_ms = SDL_GetTicks();
 

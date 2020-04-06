@@ -297,6 +297,8 @@ int init_video(void) {
 
 /*     SDL_SetWindowOpacity(sdl_win, 0.9); */
 
+    SDL_ShowCursor(SDL_DISABLE);
+
     return 1;
 }
 

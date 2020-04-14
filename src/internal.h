@@ -12,6 +12,7 @@
 #include <assert.h>
 #include <signal.h>
 #include <unistd.h>
+#include <libgen.h>
 
 #include <locale.h>
 #define __USE_XOPEN

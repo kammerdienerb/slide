@@ -1,10 +1,14 @@
 #include "internal.h"
 #include "font.h"
 #include "presentation.h"
+#include "pdf.h"
 
 typedef struct {
     int         renderer; /* 0 = hardware, 1 = software */
     const char *path;
+    int         to_pdf;
+    const char *to_pdf_name;
+    float       pdf_quality;
 } options_t;
 
 options_t options;
@@ -32,6 +36,13 @@ static char *usage =
 "    Select the rendering method:\n"
 "        'hw': (default) use harware rendering\n"
 "        'sw': use a software renderer.\n"
+"--to-pdf[=NAME]\n"
+"    Output to a PDF file instead of presenting.\n"
+"    The PDF will be created as NAME if it is provided.\n"
+"    Otherwise, basename(FILE).pdf will be used.\n"
+"--pdf-quality=FLOAT\n"
+"    Export the PDF at FLOAT quality where FLOAT is in the\n"
+"    range [0.0, 1.0]. Default value is 1.0 (full quality).\n"
 "--help\n"
 "    Show this information.\n"
 "\n"
@@ -41,7 +52,12 @@ static void err_usage(void)   { ERR("%s", usage);    }
 static void print_usage(void) { printf("%s", usage); }
 
 static void parse_options(int argc, char **argv) {
-    int i;
+    int   i;
+    char  buff[1024];
+    char  path_cpy[1024];
+    char *ext_point;
+
+    options.pdf_quality = 1.0;
 
     for (i = 1; i < argc; i += 1) {
         if (strncmp(argv[i], "--renderer=", 11) == 0) {
@@ -50,6 +66,21 @@ static void parse_options(int argc, char **argv) {
             } else if (strcmp(argv[i] + 11, "sw") == 0) {
                 options.renderer = 1;
             } else {
+                err_usage();
+            }
+        } else if (strncmp(argv[i], "--to-pdf=", 9) == 0) {
+            options.to_pdf_name = argv[i] + 9;
+            if (strlen(options.to_pdf_name) == 0) {
+                err_usage();
+            }
+            options.to_pdf = 1;
+        } else if (strcmp(argv[i], "--to-pdf") == 0) {
+            options.to_pdf = 1;
+        } else if (strncmp(argv[i], "--pdf-quality=", 14) == 0) {
+            if (!sscanf(argv[i] + 14, "%f", &options.pdf_quality)) {
+                err_usage();
+            }
+            if (options.pdf_quality < 0.0 || options.pdf_quality > 1.0) {
                 err_usage();
             }
         } else if (strcmp(argv[i], "--help") == 0) {
@@ -62,14 +93,29 @@ static void parse_options(int argc, char **argv) {
             options.path = argv[i];
         }
     }
+
+    if (!options.to_pdf_name && options.path) {
+        buff[0] = path_cpy[0] = 0;
+        strcat(path_cpy, options.path);
+        ext_point = strrchr(path_cpy, '.');
+        if (ext_point) {
+            *ext_point = 0;
+        }
+        sprintf(buff, "%s.pdf", basename(path_cpy));
+        options.to_pdf_name = strdup(buff);
+    }
 }
 
 pres_t        pres;
 const char   *pres_path;
 SDL_Renderer *sdl_ren;
 SDL_Window   *sdl_win;
+SDL_Texture  *sdl_tex;
 int           reloading;
+u32           start_ms;
 
+void do_pdf_export(void);
+void do_present(void);
 void handle_input(int *quit, int *reloading, int *winch);
 
 int  init_video(void);
@@ -109,17 +155,6 @@ static void register_hup_handler(void) {
 }
 
 int main(int argc, char **argv) {
-    int             quit;
-    u32             start_ms;
-    u32             frame_start_ms, frame_elapsed_ms;
-    u64             frame;
-    float           last_frame_time;
-    int             save_point;
-    int             should_draw;
-    int             sleep_ms;
-    int             winch;
-    int             was_animating;
-
     sdl_ren = NULL;
 
     memset(&options, 0, sizeof(options));
@@ -147,7 +182,34 @@ int main(int argc, char **argv) {
         SDL_SetWindowSize(sdl_win, pres.w, pres.h);
     } TIME_OFF(build_presentation);
 
-    register_hup_handler();
+    if (options.to_pdf) {
+        do_pdf_export();
+    } else {
+        register_hup_handler();
+        do_present();
+    }
+
+    fini_video();
+
+    return 0;
+}
+
+void do_pdf_export(void) {
+    SDL_ShowWindow(sdl_win);
+
+    export_to_pdf(sdl_ren, &pres, options.to_pdf_name, options.pdf_quality);
+}
+
+void do_present(void) {
+    int             quit;
+    u32             frame_start_ms, frame_elapsed_ms;
+    u64             frame;
+    float           last_frame_time;
+    int             save_point;
+    int             should_draw;
+    int             sleep_ms;
+    int             winch;
+    int             was_animating;
 
     quit          = 0;
     frame         = 0;
@@ -218,9 +280,6 @@ int main(int argc, char **argv) {
         }
     }
 
-    fini_video();
-
-    return 0;
 }
 
 void handle_input(int *quit, int *reloading, int *winch) {
@@ -271,6 +330,14 @@ int init_video(void) {
         render_flags = SDL_RENDERER_SOFTWARE;
     }
 
+    if (options.to_pdf) {
+        render_flags &= ~(SDL_RENDERER_ACCELERATED);
+        render_flags &= ~(SDL_RENDERER_PRESENTVSYNC);
+        render_flags |= SDL_RENDERER_SOFTWARE;
+        render_flags |= SDL_RENDERER_TARGETTEXTURE;
+    }
+
+
     TIME_ON(sdl_init_video) {
         if (SDL_InitSubSystem(SDL_INIT_VIDEO) < 0) {
             ERR("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
@@ -287,17 +354,20 @@ int init_video(void) {
         }
     } TIME_OFF(sdl_create_window);
 
+    SDL_ShowCursor(SDL_DISABLE);
+/*     SDL_SetWindowOpacity(sdl_win, 0.9); */
+
     TIME_ON(sdl_create_renderer) {
         sdl_ren = SDL_CreateRenderer(sdl_win, -1, render_flags);
     } TIME_OFF(sdl_create_renderer);
 
+    /*
+     * If exporting to PDF, we will create the texture later since
+     * we'll need to know the resolution of the presentation first.
+     */
+
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");  // make the scaled rendering look smoother.
     SDL_RenderSetLogicalSize(sdl_ren, DEFAULT_RES_W, DEFAULT_RES_H);
-
-
-/*     SDL_SetWindowOpacity(sdl_win, 0.9); */
-
-    SDL_ShowCursor(SDL_DISABLE);
 
     return 1;
 }

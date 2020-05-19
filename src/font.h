@@ -35,8 +35,8 @@ typedef tree(font_name_t, font_cache_t)    font_map_t;
 typedef tree_it(font_name_t, font_cache_t) font_map_it;
 
 
-font_map_t font_map;
-FT_Library ft_lib;
+extern font_map_t font_map;
+extern FT_Library ft_lib;
 
 int           init_font(void);
 font_cache_t *get_or_load_font(const char *name, u32 size, SDL_Renderer *sdl_ren);

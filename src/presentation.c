@@ -1,5 +1,55 @@
 #include "presentation.h"
 
+/* Result must be freed! */
+static char * get_pres_path(pres_t *pres, const char *path) {
+    char  buff[1024];
+    char *result;
+    char *home;
+
+    if (path == NULL) { return NULL; }
+
+    buff[0] = 0;
+    result  = NULL;
+
+    switch (*path) {
+        case '/':
+            result = strdup(path);
+            break;
+        case '~':
+            home = getenv("HOME");
+
+            if (strlen(path) > 1) {
+                if (path[1] == '/') {
+                    if (home) {
+                        strcat(buff, home);
+                        strcat(buff, path + 1);
+                        result = strdup(buff);
+                    }
+                } else {
+                    goto rel;
+                }
+            } else {
+                result = strdup(home);
+            }
+            break;
+        default:
+rel:
+            if (pres->pres_dir != NULL) {
+                strcat(buff, pres->pres_dir);
+                strcat(buff, "/");
+                strcat(buff, path);
+                result = strdup(buff);
+            }
+            break;
+    }
+
+    if (result == NULL) {
+        ERR("could not resolve path '%s'\n", path);
+    }
+
+    return result;
+}
+
 static array_t sh_split(char *s) {
     array_t  r;
     char    *copy,
@@ -119,7 +169,7 @@ static u32 get_or_add_font_by_id(pres_t *pres, char *font) {
 
 static font_cache_t * pres_get_elem_font(pres_t *pres, pres_elem_t *elem) {
     u32 which;
-    u32 id;
+    i32 id;
 
     which = 0;
 
@@ -134,6 +184,10 @@ static font_cache_t * pres_get_elem_font(pres_t *pres, pres_elem_t *elem) {
         default: return NULL;
     }
 
+    if (id < 0) {
+        ERR("no font(s) set!\n");
+    }
+
     return get_or_load_font(
                 pres_get_font_name_by_id(pres, id),
                 elem->font_size, pres->sdl_ren);
@@ -146,7 +200,7 @@ typedef struct {
     const char  *path;
     char        *cmd;
     pres_elem_t  elem;
-    u32          font_id,
+    i32          font_id,
                  font_bold_id,
                  font_italic_id,
                  font_bold_italic_id;
@@ -335,30 +389,53 @@ DEF_CMD(use) {
 static int do_file(pres_t *pres, build_ctx_t *ctx, const char *path);
 
 DEF_CMD(include) {
+    char *rel_path;
+
     GET_S(1);
-    if (!do_file(pres, ctx, S)) {
-        BUILD_ERR("could not open presentation file '%s'\n", S);
+
+    rel_path = get_pres_path(pres, S);
+
+    if (!do_file(pres, ctx, rel_path)) {
+        BUILD_ERR("could not open presentation file '%s'\n", rel_path);
     }
+
+    free(rel_path);
 }
 
 DEF_CMD(font) {
+    char *rel_path;
+
     GET_S(1);
-    ctx->font_id = get_or_add_font_by_id(pres, S);
+    rel_path = get_pres_path(pres, S);
+    ctx->font_id = get_or_add_font_by_id(pres, rel_path);
+    free(rel_path);
 }
 
 DEF_CMD(font_bold) {
+    char *rel_path;
+
     GET_S(1);
-    ctx->font_bold_id = get_or_add_font_by_id(pres, S);
+    rel_path = get_pres_path(pres, S);
+    ctx->font_bold_id = get_or_add_font_by_id(pres, rel_path);
+    free(rel_path);
 }
 
 DEF_CMD(font_italic) {
+    char *rel_path;
+
     GET_S(1);
-    ctx->font_italic_id = get_or_add_font_by_id(pres, S);
+    rel_path = get_pres_path(pres, S);
+    ctx->font_italic_id = get_or_add_font_by_id(pres, rel_path);
+    free(rel_path);
 }
 
 DEF_CMD(font_bold_italic) {
+    char *rel_path;
+
     GET_S(1);
-    ctx->font_bold_italic_id = get_or_add_font_by_id(pres, S);
+    rel_path = get_pres_path(pres, S);
+    ctx->font_bold_italic_id = get_or_add_font_by_id(pres, rel_path);
+    free(rel_path);
 }
 
 DEF_CMD(size) {
@@ -554,11 +631,15 @@ static image_path_t ensure_image(pres_t *pres, build_ctx_t *ctx, const char *pat
 }
 
 DEF_CMD(image) {
+    char *rel_path;
+
     commit_element(pres, ctx);
 
     GET_S(1);
+    rel_path = get_pres_path(pres, S);
     ctx->elem.kind  = PRES_IMAGE;
-    ctx->elem.image = ensure_image(pres, ctx, S);
+    ctx->elem.image = ensure_image(pres, ctx, rel_path);
+    free(rel_path);
 
     GET_F(2); LIMIT(F);
     ctx->elem.w = F * pres->w;
@@ -934,12 +1015,24 @@ static void compute_text(pres_t *pres) {
     }
 }
 
+static char * get_pres_dir_str(const char *path) {
+    char buff[1024];
+
+    buff[0] = 0;
+
+    strcpy(buff, path);
+
+    return strdup(dirname(buff));
+}
+
 pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
     pres_t        pres;
     build_ctx_t   ctx;
     image_map_it  iit;
 
     memset(&pres, 0, sizeof(pres));
+
+    pres.pres_dir = get_pres_dir_str(path);
 
     pthread_mutex_init(&pres.err_mtx, NULL);
 
@@ -960,10 +1053,10 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
     pres.images = tree_make_c(image_path_t, pres_image_data_t, strcmp);
 
     memset(&ctx, 0, sizeof(ctx));
-    ctx.font_id             = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-Regular.otf");
-    ctx.font_bold_id        = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-Bold.otf");
-    ctx.font_italic_id      = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-Italic.otf");
-    ctx.font_bold_italic_id = get_or_add_font_by_id(&pres, "fonts/PlayfairDisplay-BoldItalic.otf");
+    ctx.font_id             = -1;
+    ctx.font_bold_id        = -1;
+    ctx.font_italic_id      = -1;
+    ctx.font_bold_italic_id = -1;
     ctx.font_size           = 16;
     ctx.r                   = ctx.g = ctx.b = 0;
     ctx.justification       = JUST_L;
@@ -1043,6 +1136,8 @@ void free_presentation(pres_t *pres) {
         }
     }
     array_free(pres->elements);
+
+    free(pres->pres_dir);
 
     pthread_mutex_destroy(&pres->err_mtx);
 }

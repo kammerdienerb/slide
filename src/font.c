@@ -1,5 +1,8 @@
 #include "font.h"
 
+font_map_t font_map;
+FT_Library ft_lib;
+
 int init_font(void) {
     int err;
 

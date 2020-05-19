@@ -33,7 +33,7 @@ typedef struct {
     int      level;
     array_t  text;
     array_t  para_elems;
-    u32      font_id,
+    i32      font_id,
              font_bold_id,
              font_italic_id,
              font_bold_italic_id;
@@ -91,6 +91,8 @@ typedef struct {
     int           is_animating;
     int           movement_started;
     int           is_translating;
+
+    char         *pres_dir;
 } pres_t;
 
 pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren);

@@ -34,7 +34,7 @@ static char *usage =
 "\n"
 "--renderer\n"
 "    Select the rendering method:\n"
-"        'hw': (default) use harware rendering\n"
+"        'hw': (default) use harware rendering.\n"
 "        'sw': use a software renderer.\n"
 "--to-pdf[=NAME]\n"
 "    Output to a PDF file instead of presenting.\n"
@@ -289,8 +289,20 @@ void handle_input(int *quit, int *reloading, int *winch) {
     while (SDL_PollEvent(&e) != 0) {
         if (e.type == SDL_QUIT) {
             *quit = 1;
+        } else if (e.type == SDL_KEYUP) {
+            key_state = SDL_GetKeyboardState(NULL);
+
+            if (!key_state[SDL_SCANCODE_LSHIFT]
+            &&  !key_state[SDL_SCANCODE_RSHIFT]) {
+                SDL_ShowCursor(SDL_DISABLE);
+            }
         } else if (e.type == SDL_KEYDOWN) {
             key_state = SDL_GetKeyboardState(NULL);
+
+            if (key_state[SDL_SCANCODE_LSHIFT]
+            ||  key_state[SDL_SCANCODE_RSHIFT]) {
+                SDL_ShowCursor(SDL_ENABLE);
+            }
 
             if (!*reloading
             &&     (key_state[SDL_SCANCODE_LCTRL]

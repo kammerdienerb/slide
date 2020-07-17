@@ -43,6 +43,21 @@ fprintf(stderr, "[slide] ERROR: " __VA_ARGS__); \
     exit(1);                                    \
 } while (0)
 
+
+#define LOG2_8BIT(v)  (8 - 90/(((v)/4+14)|1) - 2/((v)/2+1))
+#define LOG2_16BIT(v) (8*((v)>255) + LOG2_8BIT((v) >>8*((v)>255)))
+#define LOG2_32BIT(v)                                        \
+    (16*((v)>65535L) + LOG2_16BIT((v)*1L >>16*((v)>65535L)))
+#define LOG2_64BIT(v)                                        \
+    (32*((v)/2L>>31 > 0)                                     \
+     + LOG2_32BIT((v)*1L >>16*((v)/2L>>31 > 0)               \
+                         >>16*((v)/2L>>31 > 0)))
+
+
+#define MIN(a, b) ((a) <= (b) ? (a) : (b))
+#define MAX(a, b) ((a) >= (b) ? (a) : (b))
+
+
 #define FPS_TO_MS(fps)   ((1000) * (1.0 / (float)(fps)))
 #define FPS_CAP_MS       ((u64)(FPS_TO_MS(60)))
 

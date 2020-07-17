@@ -252,8 +252,13 @@ static char  *S;
 
 #define BUILD_ERR(fmt, ...) do {                                 \
 pthread_mutex_lock(&pres->err_mtx);                              \
+if (ctx->cmd) {                                                  \
 fprintf(stderr, "[slide] ERROR: %s :: %d in command '%s': " fmt, \
         ctx->path, ctx->line, ctx->cmd, ##__VA_ARGS__);          \
+} else {                                                         \
+fprintf(stderr, "[slide] ERROR: %s :: %d: " fmt,                 \
+        ctx->path, ctx->line, ##__VA_ARGS__);                    \
+}                                                                \
     exit(1);                                                     \
 } while (0)
 
@@ -723,11 +728,34 @@ do {                              \
 #undef GET_F
 #undef GET_S
 
+static int pres_get_ctx_font_id(pres_t *pres, build_ctx_t *ctx) {
+    u32 which;
+    i32 id;
+
+    which = 0;
+
+    which += 1 * !!(ctx->flags & PRES_BOLD);
+    which += 2 * !!(ctx->flags & PRES_ITALIC);
+
+    switch (which) {
+        case 0:  id = ctx->font_id;             break;
+        case 1:  id = ctx->font_bold_id;        break;
+        case 2:  id = ctx->font_italic_id;      break;
+        case 3:  id = ctx->font_bold_italic_id; break;
+        default: id = -1;
+    }
+
+    return id;
+}
+
 static void do_para(pres_t *pres, build_ctx_t *ctx, char *line, int line_len) {
     pres_elem_t elem;
 
     if (ctx->elem.kind != PRES_PARA
     &&  ctx->elem.kind != PRES_BULLET) {
+        if (pres_get_ctx_font_id(pres, ctx) == -1) {
+            BUILD_ERR("text present, but no font is set\n");
+        }
         commit_element(pres, ctx);
         ctx->elem.kind       = PRES_PARA;
         ctx->elem.para_elems = array_make(pres_elem_t);
@@ -760,6 +788,8 @@ static void do_line(pres_t *pres, build_ctx_t *ctx, char *line) {
     int           line_len;
     array_t       words;
     char        **word;
+
+    ctx->cmd = NULL;
 
     line_len = strlen(line);
     if (line_len == 0) {

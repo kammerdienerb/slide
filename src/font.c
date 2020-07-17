@@ -117,24 +117,7 @@ font_cache_t *get_or_load_font(const char *name, u32 size, SDL_Renderer *sdl_ren
                     m = k * b.width + l;
                     r = b.buffer[m];
                     p = P();
-                    if (r) {
-                        pixels[p] |= r << 24;
-                        pixels[p] |= r << 16;
-                        pixels[p] |= r << 8;
-                        pixels[p] |= r;
-                    } else {
-                        pixels[p] = 0x00000000;
-                    }
-                }
-                for (l = b.width; l < max_w; l += 1) {
-                    p = P();
-                    pixels[p] = 0x00000000;
-                }
-            }
-            for (k = b.rows; k < max_h; k += 1) {
-                for (l = 0; l < max_w; l += 1) {
-                    p = P();
-                    pixels[p] = 0x00000000;
+                    pixels[p] = 0xFFFFFF00 | r;
                 }
             }
 
@@ -198,16 +181,9 @@ font_entry_t *get_glyph(font_cache_t *font, char_code_t ch, SDL_Renderer *sdl_re
 
     for (i = 0; i < b.rows; i += 1) {
         for (j = 0; j < b.width; j += 1) {
-            m = i * b.width + j;
-            r = b.buffer[m];
-            if (r) {
-                pixels[m] |= r << 24;
-                pixels[m] |= r << 16;
-                pixels[m] |= r << 8;
-                pixels[m] |= r;
-            } else {
-                pixels[m] = 0x00000000;
-            }
+            m         = i * b.width + j;
+            r         = b.buffer[m];
+            pixels[m] = 0xFFFFFF00 | r;
         }
     }
 

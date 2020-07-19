@@ -219,7 +219,7 @@ static void draw_grid(void) {
     unit = MAX(pres.w, pres.h) / N_GRID_SQUARES;
 
     r.w = 3;
-    for (i = 0; i < pres.w / unit; i += 1) {
+    for (i = 1; i < pres.w / unit; i += 1) {
         x = i * unit;
 
         r.x = x;
@@ -230,7 +230,7 @@ static void draw_grid(void) {
     }
 
     r.h = 3;
-    for (i = 0; i < pres.h / unit; i += 1) {
+    for (i = 1; i < pres.h / unit; i += 1) {
         y = i * unit;
 
         r.x = 0;

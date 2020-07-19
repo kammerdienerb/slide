@@ -112,11 +112,12 @@ SDL_Renderer *sdl_ren;
 SDL_Window   *sdl_win;
 SDL_Texture  *sdl_tex;
 int           reloading;
+int           show_grid;
 u32           start_ms;
 
 void do_pdf_export(void);
 void do_present(void);
-void handle_input(int *quit, int *reloading, int *winch);
+void handle_input(int *quit, int *reloading, int *show_grid, int *winch);
 
 int  init_video(void);
 void fini_video(void);
@@ -200,6 +201,46 @@ void do_pdf_export(void) {
     export_to_pdf(sdl_ren, &pres, options.to_pdf_name, options.pdf_quality);
 }
 
+static void draw_grid(void) {
+    int      unit;
+    int      i, x, y;
+    SDL_Rect r;
+
+#define N_GRID_SQUARES (32)
+
+    SDL_SetRenderDrawBlendMode(sdl_ren, SDL_BLENDMODE_BLEND);
+
+    SDL_SetRenderDrawColor(pres.sdl_ren,
+                           (~pres.r) & 0xFF,
+                           (~pres.g) & 0xFF,
+                           (~pres.b) & 0xFF,
+                           64);
+
+    unit = MAX(pres.w, pres.h) / N_GRID_SQUARES;
+
+    r.w = 3;
+    for (i = 0; i < pres.w / unit; i += 1) {
+        x = i * unit;
+
+        r.x = x;
+        r.y = 0;
+        r.h = pres.h;
+
+        SDL_RenderFillRect(sdl_ren, &r);
+    }
+
+    r.h = 3;
+    for (i = 0; i < pres.h / unit; i += 1) {
+        y = i * unit;
+
+        r.x = 0;
+        r.y = y;
+        r.w = pres.w;
+
+        SDL_RenderFillRect(sdl_ren, &r);
+    }
+}
+
 void do_present(void) {
     int             quit;
     u32             frame_start_ms, frame_elapsed_ms;
@@ -225,7 +266,7 @@ void do_present(void) {
             reload_pres(&pres, pres_path);
         }
 
-        handle_input(&quit, &reloading, &winch);
+        handle_input(&quit, &reloading, &show_grid, &winch);
 
         should_draw   =    (frame <= DISPLAY_DELAY_FRAMES + 1)
                         || was_animating
@@ -263,6 +304,10 @@ void do_present(void) {
 /*         draw_time(last_frame_time); */
 
         if (should_draw) {
+            if (show_grid) {
+                draw_grid();
+            }
+
             SDL_RenderPresent(sdl_ren);
             SDL_Delay(0);
         }
@@ -282,7 +327,7 @@ void do_present(void) {
 
 }
 
-void handle_input(int *quit, int *reloading, int *winch) {
+void handle_input(int *quit, int *reloading, int *show_grid, int *winch) {
     SDL_Event    e;
     const Uint8 *key_state;
 
@@ -309,6 +354,9 @@ void handle_input(int *quit, int *reloading, int *winch) {
                 ||  key_state[SDL_SCANCODE_RCTRL])
             &&  key_state[SDL_SCANCODE_R]) {
                 *reloading = 1;
+            } else if ((key_state[SDL_SCANCODE_LCTRL] || key_state[SDL_SCANCODE_RCTRL])
+            && key_state[SDL_SCANCODE_L]) {
+                *show_grid = !*show_grid;
             } else if (key_state[SDL_SCANCODE_Q]) {
                 *quit = 1;
             } else if (!pres.is_animating && !pres.movement_started) {

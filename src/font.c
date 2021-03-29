@@ -6,7 +6,8 @@ FT_Library ft_lib;
 int init_font(void) {
     int err;
 
-    setlocale(LC_ALL, "en_US.utf8");
+    /* setlocale(LC_ALL, "en_US.utf8"); */
+    setlocale(LC_CTYPE, "UTF-8");
 
     font_map = tree_make_c(font_name_t, font_cache_t, strcmp);
 

@@ -398,6 +398,7 @@ static void do_line(pres_t *pres, build_ctx_t *ctx, char *line);
 
 DEF_CMD(use) {
     macro_map_it   it;
+    char         **macro_name_it;
     char         **line;
 
     GET_S(1);
@@ -407,9 +408,19 @@ DEF_CMD(use) {
         BUILD_ERR("'%s' has not been defined\n", S);
     }
 
+    array_traverse(pres->macro_use_stack, macro_name_it) {
+        if (strcmp(S, *macro_name_it) == 0) {
+            BUILD_ERR("macro '%s' is recursive\n", S);
+        }
+    }
+
+    array_push(pres->macro_use_stack, tree_it_key(it));
+
     array_traverse(tree_it_val(it), line) {
         do_line(pres, ctx, *line);
     }
+
+    array_pop(pres->macro_use_stack);
 }
 
 static int do_file(pres_t *pres, build_ctx_t *ctx, const char *path);
@@ -1093,16 +1104,17 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
 
     pthread_mutex_init(&pres.err_mtx, NULL);
 
-    pres.sdl_ren       = sdl_ren;
-    pres.elements      = array_make(pres_elem_t);
-    pres.fonts         = array_make(char*);
-    pres.macros        = tree_make_c(macro_name_t, array_t, strcmp);
-    pres.collect_macro = NULL;
-    pres.beg_end_match = 0;
-    pres.r             = pres.g = pres.b = 255;
-    pres.speed         = 4.0;
-    pres.w             = DEFAULT_RES_W;
-    pres.h             = DEFAULT_RES_H;
+    pres.sdl_ren         = sdl_ren;
+    pres.elements        = array_make(pres_elem_t);
+    pres.fonts           = array_make(char*);
+    pres.macros          = tree_make_c(macro_name_t, array_t, strcmp);
+    pres.collect_macro   = NULL;
+    pres.beg_end_match   = 0;
+    pres.macro_use_stack = array_make(char*);
+    pres.r               = pres.g = pres.b = 255;
+    pres.speed           = 4.0;
+    pres.w               = DEFAULT_RES_W;
+    pres.h               = DEFAULT_RES_H;
 
     pres.bullet_strings[0] = "• ";
     pres.bullet_strings[1] = "› ";
@@ -1155,6 +1167,8 @@ void free_presentation(pres_t *pres) {
     char             **fit;
     pres_elem_t       *eit1,
                       *eit2;
+
+    array_free(pres->macro_use_stack);
 
     tree_traverse(pres->images, iit) {
         free(tree_it_key(iit));

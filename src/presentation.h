@@ -76,6 +76,7 @@ typedef struct {
     macro_map_t   macros;
     char         *collect_macro;
     int           beg_end_match;
+    array_t       macro_use_stack;
     u32           r, g, b;
     double        speed;
     char         *bullet_strings[MAX_BULLET_LEVEL];

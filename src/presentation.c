@@ -1,5 +1,25 @@
 #include "presentation.h"
 
+static macro_map_it get_macro_it(pres_t *pres, const char *macro_name) {
+    return tree_lookup(pres->macros, (char*)macro_name);
+}
+
+static macro_map_it new_macro(pres_t *pres, const char *macro_name) {
+    array_t new_array;
+
+    new_array  = array_make(char*);
+    return tree_insert(pres->macros, strdup(macro_name), new_array);
+}
+
+static macro_map_it get_or_make_macro(pres_t *pres, const char *macro_name) {
+    macro_map_it it;
+
+    it = get_macro_it(pres, macro_name);
+    if (!tree_it_good(it)) { it = new_macro(pres, macro_name); }
+
+    return it;
+}
+
 /* Result must be freed! */
 static char * get_pres_path(pres_t *pres, const char *path) {
     char  buff[1024];
@@ -262,6 +282,18 @@ fprintf(stderr, "[slide] ERROR: %s :: %d: " fmt,                 \
     exit(1);                                                     \
 } while (0)
 
+#define BUILD_INFO(fmt, ...) do {                                \
+pthread_mutex_lock(&pres->err_mtx);                              \
+if (ctx->cmd) {                                                  \
+fprintf(stderr, "[slide] INFO: %s :: %d in command '%s': " fmt,  \
+        ctx->path, ctx->line, ctx->cmd, ##__VA_ARGS__);          \
+} else {                                                         \
+fprintf(stderr, "[slide] INFO: %s :: %d: " fmt,                  \
+        ctx->path, ctx->line, ##__VA_ARGS__);                    \
+}                                                                \
+pthread_mutex_unlock(&pres->err_mtx);                            \
+} while (0)
+
 #define GET_I(idx)                                            \
 do {                                                          \
     if (array_len(words) <= idx                               \
@@ -340,37 +372,26 @@ DEF_CMD(resolution) {
 
 DEF_CMD(begin) {
     macro_map_it   it;
+    array_t       *lines;
     char         **line_it;
-    array_t       *lines, new_array;
 
-    if (pres->collect_lines != NULL) {
-        BUILD_ERR("begin within begin\n");
-    }
 
     commit_element(pres, ctx);
+
     GET_S(1);
 
-    it = tree_lookup(pres->macros, S);
+    it = get_or_make_macro(pres, S);
 
-    if (tree_it_good(it)) {
-        lines = &tree_it_val(it);
-        array_traverse(*lines, line_it) { free(*line_it); }
-        array_clear(*lines);
-    } else {
-        new_array = array_make(char*);
-        it        = tree_insert(pres->macros, strdup(S), new_array);
-        lines     = &tree_it_val(it);
-    }
+    lines = &tree_it_val(it);
+    array_traverse(*lines, line_it) { free(*line_it); }
+    array_clear(*lines);
 
-    pres->collect_lines = lines;
+    pres->collect_macro = tree_it_key(it);
+    pres->beg_end_match = 1;
 }
 
 DEF_CMD(end) {
-    if (pres->collect_lines == NULL) {
-        BUILD_ERR("nothing to end\n");
-    }
-
-    pres->collect_lines = NULL;
+    pres->collect_macro = NULL;
 }
 
 static void do_line(pres_t *pres, build_ctx_t *ctx, char *line);
@@ -380,7 +401,7 @@ DEF_CMD(use) {
     char         **line;
 
     GET_S(1);
-    it = tree_lookup(pres->macros, S);
+    it = get_macro_it(pres, S);
 
     if (!tree_it_good(it)) {
         BUILD_ERR("'%s' has not been defined\n", S);
@@ -785,45 +806,70 @@ static void do_break(pres_t *pres, build_ctx_t *ctx) {
 }
 
 static void do_line(pres_t *pres, build_ctx_t *ctx, char *line) {
-    int           line_len;
-    array_t       words;
-    char        **word;
+    int            line_len;
+    array_t        words;
+    char         **word;
+    int            is_beg_or_end;
+    char          *line_copy;
+    macro_map_it   it;
 
     ctx->cmd = NULL;
-
     line_len = strlen(line);
-    if (line_len == 0) {
-        return;
-    } else if (line_len == 1 && line[0] == '\n') {
-        do_break(pres, ctx);
-        return;
-    }
 
-    if (line[line_len - 1] == '\n') {
-        line[line_len - 1]  = 0;
-        line_len           -= 1;
+    if (line_len <= 0) { return; }
+
+    if (pres->collect_macro == NULL) {
+        if (line_len == 1 && line[0] == '\n') {
+            do_break(pres, ctx);
+            return;
+        }
+
+        if (line[line_len - 1] == '\n') {
+            line[line_len - 1]  = 0;
+            line_len           -= 1;
+        }
+
+        if (line[0] == ':') {
+            words = sh_split(line + 1);
+            if (array_len(words)) {
+docmd:;
+                do_command(pres, ctx, words);
+            }
+        } else {
+            do_para(pres, ctx, line, line_len);
+        }
+    } else {
+        if (line[0] == ':') {
+            words = sh_split(line + 1);
+            if (array_len(words)) {
+                word          = array_item(words, 0);
+                is_beg_or_end =   (!strcmp(*word, "begin") ?  1
+                                : (!strcmp(*word, "end")   ? -1
+                                :                             0));
+
+                pres->beg_end_match += is_beg_or_end;
+
+                /* At 'end' that belongs to the collecting macro. */
+                if (is_beg_or_end == -1 && pres->beg_end_match == 0) {
+                    goto docmd;
+                }
+            }
+        }
+
+        it        = get_macro_it(pres, pres->collect_macro);
+        line_copy = strdup(line);
+        array_push(tree_it_val(it), line_copy);
     }
 
     if (line[0] == ':') {
-        words = sh_split(line + 1);
-        if (array_len(words)) {
-            do_command(pres, ctx, words);
-        }
         array_traverse(words, word) { free(*word); }
         array_free(words);
-    } else {
-        do_para(pres, ctx, line, line_len);
     }
 }
 
 static int do_file(pres_t *pres, build_ctx_t *ctx, const char *path) {
     FILE         *file;
     char          line[1024];
-    char         *line_copy;
-    int           line_len;
-    array_t       words;
-    char        **word;
-    int           is_beg_or_end;
     int           save_line;
     const char   *save_path;
 
@@ -838,34 +884,15 @@ static int do_file(pres_t *pres, build_ctx_t *ctx, const char *path) {
     ctx->path = path;
 
     while (fgets(line, sizeof(line), file)) {
-        is_beg_or_end  = 0;
-        ctx->line      += 1;
-
-        if (pres->collect_lines != NULL) {
-            line_len = strlen(line);
-            if (line_len != 0 && line[0] == ':') {
-                words = sh_split(line + 1);
-                if (array_len(words)) {
-                    word          = array_item(words, 0);
-                    is_beg_or_end = (  !strcmp(*word, "end")
-                                    || !strcmp(*word, "begin"));
-                }
-                array_traverse(words, word) { free(*word); }
-                array_free(words);
-                if (is_beg_or_end) {
-                    goto doline;
-                }
-            }
-
-            line_copy = strdup(line);
-            array_push(*pres->collect_lines, line_copy);
-        } else {
-doline:
-            do_line(pres, ctx, line);
-        }
+        ctx->line += 1;
+        do_line(pres, ctx, line);
     }
 
     commit_element(pres, ctx);
+
+    if (pres->collect_macro != NULL) {
+        BUILD_ERR("unterminated macro '%s'\n", pres->collect_macro);
+    }
 
     fclose(file);
 
@@ -1070,7 +1097,8 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
     pres.elements      = array_make(pres_elem_t);
     pres.fonts         = array_make(char*);
     pres.macros        = tree_make_c(macro_name_t, array_t, strcmp);
-    pres.collect_lines = NULL;
+    pres.collect_macro = NULL;
+    pres.beg_end_match = 0;
     pres.r             = pres.g = pres.b = 255;
     pres.speed         = 4.0;
     pres.w             = DEFAULT_RES_W;

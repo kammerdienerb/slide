@@ -4,6 +4,7 @@
 #include "pdf.h"
 
 typedef struct {
+    int         check;
     int         renderer; /* 0 = hardware, 1 = software */
     const char *path;
     int         to_pdf;
@@ -32,6 +33,8 @@ static char *usage =
 "\n"
 "options:\n"
 "\n"
+"--check\n"
+"    Check the input for errors, but do not present.\n"
 "--renderer\n"
 "    Select the rendering method:\n"
 "        'hw': (default) use harware rendering.\n"
@@ -60,7 +63,9 @@ static void parse_options(int argc, char **argv) {
     options.pdf_quality = 1.0;
 
     for (i = 1; i < argc; i += 1) {
-        if (strncmp(argv[i], "--renderer=", 11) == 0) {
+        if (strncmp(argv[i], "--check", 7) == 0) {
+            options.check = 1;
+        } else if (strncmp(argv[i], "--renderer=", 11) == 0) {
             if (strcmp(argv[i] + 11, "hw") == 0) {
                 options.renderer = 0;
             } else if (strcmp(argv[i] + 11, "sw") == 0) {
@@ -169,9 +174,11 @@ int main(int argc, char **argv) {
 
     printf("pid = %d\n", getpid());
 
-    TIME_ON(init_video) {
-        init_video();
-    } TIME_OFF(init_video);
+    if (!options.check) {
+        TIME_ON(init_video) {
+            init_video();
+        } TIME_OFF(init_video);
+    }
 
     TIME_ON(init_font) {
         init_font();
@@ -179,9 +186,13 @@ int main(int argc, char **argv) {
 
     TIME_ON(build_presentation) {
         pres = build_presentation(pres_path, sdl_ren);
-        update_window_resolution(&pres);
-        SDL_SetWindowSize(sdl_win, pres.w, pres.h);
+        if (!options.check) {
+            update_window_resolution(&pres);
+            SDL_SetWindowSize(sdl_win, pres.w, pres.h);
+        }
     } TIME_OFF(build_presentation);
+
+    if (options.check) { return 0; }
 
     if (options.to_pdf) {
         do_pdf_export();
@@ -251,12 +262,15 @@ void do_present(void) {
     int             sleep_ms;
     int             winch;
     int             was_animating;
+    int             old_show_grid;
 
     quit          = 0;
     frame         = 0;
     save_point    = 0;
     winch         = 0;
     was_animating = 0;
+    old_show_grid = show_grid;
+
 
     while (!quit) {
         frame_start_ms = SDL_GetTicks();
@@ -274,6 +288,7 @@ void do_present(void) {
                         || pres.movement_started
                         || reloading
                         || winch
+                        || show_grid != old_show_grid
                         || (frame % NON_ANIM_DRAW_INTERVAL == 0);
         winch         =    0;
 

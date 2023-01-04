@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
 
 # CFG="-g -O0"
-CFG="-arch arm64 -O3"
+CFG="-O3"
 
-SDL2_PREFIX=/opt/homebrew/Cellar/sdl2/2.0.20
+FT_CFLAGS=$(pkg-config --cflags freetype2)
+FT_LDFLAGS=$(pkg-config --libs freetype2)
+SDL_CFLAGS=$(pkg-config --cflags sdl2)
+SDL_LDFLAGS=$(pkg-config --libs sdl2)
 
-gcc -Wall -c src/threadpool.c   -I src $(pkg-config --cflags freetype2) -I${SDL2_PREFIX}/include ${CFG} -o src/threadpool.o   &
-gcc -Wall -c src/internal.c     -I src $(pkg-config --cflags freetype2) -I${SDL2_PREFIX}/include ${CFG} -o src/internal.o     &
-gcc -Wall -c src/stb_image.c    -I src $(pkg-config --cflags freetype2) -I${SDL2_PREFIX}/include ${CFG} -o src/stb_image.o    &
-gcc -Wall -c src/array.c        -I src $(pkg-config --cflags freetype2) -I${SDL2_PREFIX}/include ${CFG} -o src/array.o        &
-gcc -Wall -c src/font.c         -I src $(pkg-config --cflags freetype2) -I${SDL2_PREFIX}/include ${CFG} -o src/font.o         &
-gcc -Wall -c src/presentation.c -I src $(pkg-config --cflags freetype2) -I${SDL2_PREFIX}/include ${CFG} -o src/presentation.o &
-gcc -Wall -c src/pdf.c          -I src $(pkg-config --cflags freetype2) -I${SDL2_PREFIX}/include ${CFG} -o src/pdf.o          &
-gcc -Wall -c src/slide.c        -I src $(pkg-config --cflags freetype2) -I${SDL2_PREFIX}/include ${CFG} -o src/slide.o        &
+CFLAGS="-Wall -I src ${FT_CFLAGS} ${SDL_CFLAGS}"
+LDFLAGS="${FT_LDFLAGS} ${SDL_LDFLAGS} -lm -lpthread"
+
+gcc -c src/threadpool.c   ${CFLAGS} ${CFG} -o src/threadpool.o   &
+gcc -c src/internal.c     ${CFLAGS} ${CFG} -o src/internal.o     &
+gcc -c src/stb_image.c    ${CFLAGS} ${CFG} -o src/stb_image.o    &
+gcc -c src/array.c        ${CFLAGS} ${CFG} -o src/array.o        &
+gcc -c src/font.c         ${CFLAGS} ${CFG} -o src/font.o         &
+gcc -c src/presentation.c ${CFLAGS} ${CFG} -o src/presentation.o &
+gcc -c src/pdf.c          ${CFLAGS} ${CFG} -o src/pdf.o          &
+gcc -c src/slide.c        ${CFLAGS} ${CFG} -o src/slide.o        &
 wait
-gcc -arch arm64 src/*.o $(pkg-config --libs freetype2) -L${SDL2_PREFIX}/lib -lSDL2 -lm -lpthread -o slide
-rm -rf src/*.o
+gcc src/*.o ${LDFLAGS} ${CFG} -o slide
+# rm -rf src/*.o

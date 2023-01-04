@@ -1,3 +1,2 @@
-vimish-bind normal ctrl-y    less "./build.sh && sudo ./install.sh"
-vimish-bind normal ctrl-t    sh-silent "$SHELL -c \"./slide test.slide\" &"
-vimish-bind normal "spc s v" sh-silent "pkill -HUP slide"
+set my-frames-force-split yes
+set builder-build-command './build.sh && ./install.sh'

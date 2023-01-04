@@ -1094,9 +1094,8 @@ static char * get_pres_dir_str(const char *path) {
 }
 
 pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
-    pres_t        pres;
-    build_ctx_t   ctx;
-    image_map_it  iit;
+    pres_t      pres;
+    build_ctx_t ctx;
 
     memset(&pres, 0, sizeof(pres));
 
@@ -1115,6 +1114,7 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
     pres.speed           = 4.0;
     pres.w               = DEFAULT_RES_W;
     pres.h               = DEFAULT_RES_H;
+    pres.max_view_slides = 2;
 
     pres.bullet_strings[0] = "• ";
     pres.bullet_strings[1] = "› ";
@@ -1150,11 +1150,6 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
     tp_wait(ctx.tp);
     tp_stop(ctx.tp, TP_GRACEFUL);
     tp_free(ctx.tp);
-
-    (void)iit;
-/*     tree_traverse(pres.images, iit) { */
-/*         pres_create_image_texture(&pres, &tree_it_val(iit)); */
-/*     } */
 
     return pres;
 }
@@ -1246,7 +1241,7 @@ void pres_clear_and_draw_bg(pres_t *pres) {
 }
 
 #define IN_VIEW(pres) \
-((pres)->draw_y > -((pres)->h) || (pres)->draw_y < (2 * (pres)->h))
+((pres)->draw_y > -((pres)->h) || (pres)->draw_y < ((pres)->max_view_slides * (pres)->h))
 
 void draw_string(pres_t *pres, const char *str, int l_margin, int r_margin, int justification) {
     int            _x, _y;
@@ -1620,10 +1615,12 @@ static void do_animation(pres_t *pres) {
     }
 }
 
-void draw_presentation(pres_t *pres) {
+static void _draw_presentation(pres_t *pres, int clear) {
     pres_elem_t *elem;
 
-    pres_clear_and_draw_bg(pres);
+    if (clear) {
+        pres_clear_and_draw_bg(pres);
+    }
 
     pres->draw_x         = pres->view_x;
     pres->draw_y         = pres->view_y;
@@ -1644,6 +1641,14 @@ void draw_presentation(pres_t *pres) {
 
         if (!pres->is_translating) { pres->draw_x = 0; }
     }
+}
+
+void draw_presentation(pres_t *pres) {
+    _draw_presentation(pres, 1);
+}
+
+void draw_presentation_no_clear(pres_t *pres) {
+    _draw_presentation(pres, 0);
 }
 
 void update_presentation(pres_t *pres) {

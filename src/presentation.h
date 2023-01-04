@@ -86,6 +86,7 @@ typedef struct {
     font_cache_t *cur_font;
     int           draw_x,   draw_y;
     int           view_x,   view_y;
+    int           max_view_slides;
     u32           n_points, point;
     int           save_points[2048];
     int           dst_view_y;
@@ -104,6 +105,7 @@ sdl_texture_t pres_get_image_texture(pres_t *pres, const char *image);
 
 void pres_clear_and_draw_bg(pres_t *pres);
 void draw_presentation(pres_t *pres);
+void draw_presentation_no_clear(pres_t *pres);
 void update_presentation(pres_t *pres);
 void pres_restore_point(pres_t *pres, int point);
 void pres_next_point(pres_t *pres);

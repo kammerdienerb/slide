@@ -57,13 +57,12 @@ fprintf(stderr, "[slide] ERROR: " __VA_ARGS__); \
 #define MIN(a, b) ((a) <= (b) ? (a) : (b))
 #define MAX(a, b) ((a) >= (b) ? (a) : (b))
 
-
+#define MAX_FPS          (60)
 #define FPS_TO_MS(fps)   ((1000) * (1.0 / (float)(fps)))
-#define FPS_CAP_MS       ((u64)(FPS_TO_MS(60)))
+#define FPS_CAP_MS       ((u64)(FPS_TO_MS(MAX_FPS)))
 
 #define DEFAULT_RES_W          (1440)
 #define DEFAULT_RES_H          (1080)
-#define DISPLAY_DELAY_FRAMES   (1)
 #define NON_ANIM_DRAW_INTERVAL (8)
 
 #endif

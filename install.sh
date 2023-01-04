@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
 
-cp slide /usr/bin
+rm ~/.local/bin/slide
+cp slide ~/.local/bin

@@ -1,5 +1,11 @@
 :font fonts/PlayfairDisplay-Regular.otf
 hello, this is my program
+:vspace 0.2
+:point
+foobar
 :vfill
 :point
 page 2
+:vfill
+:point
+page 3

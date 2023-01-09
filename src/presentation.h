@@ -7,15 +7,23 @@
 #include "font.h"
 #include "threadpool.h"
 
-#define PRES_PARA      (1)
-#define PRES_PARA_ELEM (2)
-#define PRES_BREAK     (3)
-#define PRES_VSPACE    (4)
-#define PRES_VFILL     (5)
-#define PRES_POINT     (6)
-#define PRES_BULLET    (7)
-#define PRES_IMAGE     (8)
-#define PRES_TRANSLATE (9)
+enum {
+    PRES_NULL,
+    PRES_PARA,
+    PRES_PARA_ELEM,
+    PRES_BREAK,
+    PRES_VSPACE,
+    PRES_VFILL,
+    PRES_POINT,
+    PRES_SAVE,
+    PRES_RESTORE,
+    PRES_BULLET,
+    PRES_IMAGE,
+    PRES_GOTO,
+    PRES_GOTOX,
+    PRES_GOTOY,
+    PRES_TRANSLATE,
+};
 
 #define MAX_BULLET_LEVEL (3)
 
@@ -41,7 +49,10 @@ typedef struct {
     u32      r, g, b;
     u32      l_margin, r_margin;
     int      justification;
+    union {
     char    *image;
+    char    *mark_name;
+    };
     u32      flags;
 
     array_t  all_text;
@@ -67,6 +78,11 @@ use_tree(image_path_t, pres_image_data_t);
 typedef tree(image_path_t, pres_image_data_t)    image_map_t;
 typedef tree_it(image_path_t, pres_image_data_t) image_map_it;
 
+typedef char *mark_name_t;
+use_tree(mark_name_t, int);
+typedef tree(mark_name_t, int)    mark_map_t;
+typedef tree_it(mark_name_t, int) mark_map_it;
+
 typedef struct {
     pthread_mutex_t err_mtx;
 
@@ -81,6 +97,7 @@ typedef struct {
     double        speed;
     char         *bullet_strings[MAX_BULLET_LEVEL];
     image_map_t   images;
+    mark_map_t    marks;
 
     u32           w, h;
     font_cache_t *cur_font;

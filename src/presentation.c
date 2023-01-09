@@ -341,6 +341,22 @@ DEF_CMD(point) {
     commit_element(pres, ctx);
 }
 
+DEF_CMD(save) {
+    commit_element(pres, ctx);
+    GET_S(1);
+    ctx->elem.kind      = PRES_SAVE;
+    ctx->elem.mark_name = strdup(S);
+    commit_element(pres, ctx);
+}
+
+DEF_CMD(restore) {
+    commit_element(pres, ctx);
+    GET_S(1);
+    ctx->elem.kind      = PRES_RESTORE;
+    ctx->elem.mark_name = strdup(S);
+    commit_element(pres, ctx);
+}
+
 DEF_CMD(speed) {
     GET_S(1);
 
@@ -686,6 +702,38 @@ DEF_CMD(image) {
     commit_element(pres, ctx);
 }
 
+DEF_CMD(goto) {
+    commit_element(pres, ctx);
+
+    ctx->elem.kind = PRES_GOTO;
+    GET_F(1);
+    ctx->elem.x = F * pres->w;
+    GET_F(2);
+    ctx->elem.y = F * pres->h;
+
+    commit_element(pres, ctx);
+}
+
+DEF_CMD(gotoy) {
+    commit_element(pres, ctx);
+
+    ctx->elem.kind = PRES_GOTOY;
+    GET_F(1);
+    ctx->elem.y = F * pres->h;
+
+    commit_element(pres, ctx);
+}
+
+DEF_CMD(gotox) {
+    commit_element(pres, ctx);
+
+    ctx->elem.kind = PRES_GOTOX;
+    GET_F(1);
+    ctx->elem.x = F * pres->w;
+
+    commit_element(pres, ctx);
+}
+
 DEF_CMD(translate) {
     commit_element(pres, ctx);
 
@@ -716,6 +764,8 @@ do {                              \
 
 
     if      (strcmp(cmd, "point")            == 0) { CALL_CMD(point);             }
+    else if (strcmp(cmd, "save")             == 0) { CALL_CMD(save);              }
+    else if (strcmp(cmd, "restore")          == 0) { CALL_CMD(restore);           }
     else if (strcmp(cmd, "speed")            == 0) { CALL_CMD(speed);             }
     else if (strcmp(cmd, "resolution")       == 0) { CALL_CMD(resolution);        }
     else if (strcmp(cmd, "begin")            == 0) { CALL_CMD(begin);             }
@@ -747,6 +797,9 @@ do {                              \
     else if (strcmp(cmd, "vfill")            == 0) { CALL_CMD(vfill);             }
     else if (strcmp(cmd, "bullet")           == 0) { CALL_CMD(bullet);            }
     else if (strcmp(cmd, "image")            == 0) { CALL_CMD(image);             }
+    else if (strcmp(cmd, "goto")             == 0) { CALL_CMD(goto);              }
+    else if (strcmp(cmd, "gotox")            == 0) { CALL_CMD(gotox);             }
+    else if (strcmp(cmd, "gotoy")            == 0) { CALL_CMD(gotoy);             }
     else if (strcmp(cmd, "translate")        == 0) { CALL_CMD(translate);         }
     else {
         ctx->cmd = cmd;
@@ -1121,6 +1174,7 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
     pres.bullet_strings[2] = "– ";
 
     pres.images = tree_make_c(image_path_t, pres_image_data_t, strcmp);
+    pres.marks  = tree_make_c(mark_name_t, int, strcmp);
 
     memset(&ctx, 0, sizeof(ctx));
     ctx.font_id             = -1;
@@ -1563,6 +1617,45 @@ static void draw_image(pres_t *pres, pres_elem_t *elem) {
     pres->is_translating  = 0;
 }
 
+static void draw_save(pres_t *pres, pres_elem_t *elem) {
+    mark_name_t key;
+    mark_map_it it;
+
+    key = elem->mark_name;
+
+    it = tree_lookup(pres->marks, elem->mark_name);
+    if (!tree_it_good(it)) { key = strdup(key); }
+
+    tree_insert(pres->marks, key, pres->draw_y - pres->view_y);
+}
+
+static void draw_restore(pres_t *pres, pres_elem_t *elem) {
+    mark_map_it it;
+    int         dst;
+
+    dst = 0.0;
+    it  = tree_lookup(pres->marks, elem->mark_name);
+    if (tree_it_good(it)) {
+        dst = tree_it_val(it);
+    }
+
+    pres->draw_y         = pres->view_y + dst;
+}
+
+static void draw_goto(pres_t *pres, pres_elem_t *elem) {
+    pres->draw_x = elem->x;
+    pres->draw_y = pres->draw_y - ((pres->draw_y - pres->view_y) % pres->h) + elem->y;
+}
+
+static void draw_gotox(pres_t *pres, pres_elem_t *elem) {
+    pres->is_translating = 1;
+    pres->draw_x         = elem->x;
+}
+
+static void draw_gotoy(pres_t *pres, pres_elem_t *elem) {
+    pres->draw_y = pres->draw_y - ((pres->draw_y - pres->view_y) % pres->h) + elem->y;
+}
+
 static void draw_translate(pres_t *pres, pres_elem_t *elem) {
     pres->is_translating  = 1;
     pres->draw_x         += elem->x;
@@ -1635,6 +1728,11 @@ static void _draw_presentation(pres_t *pres, int clear) {
             case PRES_VSPACE:    draw_vspace(pres, elem);    break;
             case PRES_VFILL:     draw_vfill(pres, elem);     break;
             case PRES_IMAGE:     draw_image(pres, elem);     break;
+            case PRES_SAVE:      draw_save(pres, elem);      break;
+            case PRES_RESTORE:   draw_restore(pres, elem);   break;
+            case PRES_GOTO:      draw_goto(pres, elem);      break;
+            case PRES_GOTOX:     draw_gotox(pres, elem);     break;
+            case PRES_GOTOY:     draw_gotoy(pres, elem);     break;
             case PRES_TRANSLATE: draw_translate(pres, elem); break;
             case PRES_POINT:     handle_point(pres, elem);   break;
         }

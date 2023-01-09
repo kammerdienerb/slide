@@ -1643,13 +1643,14 @@ static void draw_restore(pres_t *pres, pres_elem_t *elem) {
 }
 
 static void draw_goto(pres_t *pres, pres_elem_t *elem) {
-    pres->draw_x = elem->x;
-    pres->draw_y = pres->draw_y - ((pres->draw_y - pres->view_y) % pres->h) + elem->y;
+    pres->is_translating = 1;
+    pres->draw_x         = elem->x;
+    pres->draw_y         = pres->draw_y - ((pres->draw_y - pres->view_y) % pres->h) + elem->y;
 }
 
 static void draw_gotox(pres_t *pres, pres_elem_t *elem) {
     pres->is_translating = 1;
-    pres->draw_x         = elem->x;
+    pres->draw_x         = pres->view_x + elem->x;
 }
 
 static void draw_gotoy(pres_t *pres, pres_elem_t *elem) {

@@ -598,6 +598,13 @@ DEF_CMD(vfill) {
     commit_element(pres, ctx);
 }
 
+DEF_CMD(counter) {
+    char buff[64];
+
+    pres->counter += 1;
+    snprintf(buff, sizeof(buff), "%u", pres->counter);
+    do_line(pres, ctx, buff);
+}
 
 DEF_CMD(bullet) {
     commit_element(pres, ctx);
@@ -795,6 +802,7 @@ do {                              \
     else if (strcmp(cmd, "rjust")            == 0) { CALL_CMD(rjust);             }
     else if (strcmp(cmd, "vspace")           == 0) { CALL_CMD(vspace);            }
     else if (strcmp(cmd, "vfill")            == 0) { CALL_CMD(vfill);             }
+    else if (strcmp(cmd, "counter")          == 0) { CALL_CMD(counter);           }
     else if (strcmp(cmd, "bullet")           == 0) { CALL_CMD(bullet);            }
     else if (strcmp(cmd, "image")            == 0) { CALL_CMD(image);             }
     else if (strcmp(cmd, "goto")             == 0) { CALL_CMD(goto);              }
@@ -1175,6 +1183,8 @@ pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren) {
 
     pres.images = tree_make_c(image_path_t, pres_image_data_t, strcmp);
     pres.marks  = tree_make_c(mark_name_t, int, strcmp);
+
+    pres.counter = 0;
 
     memset(&ctx, 0, sizeof(ctx));
     ctx.font_id             = -1;

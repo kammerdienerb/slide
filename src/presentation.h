@@ -17,6 +17,7 @@ enum {
     PRES_POINT,
     PRES_SAVE,
     PRES_RESTORE,
+    PRES_COUNTER,
     PRES_BULLET,
     PRES_IMAGE,
     PRES_GOTO,
@@ -98,6 +99,7 @@ typedef struct {
     char         *bullet_strings[MAX_BULLET_LEVEL];
     image_map_t   images;
     mark_map_t    marks;
+    u32           counter;
 
     u32           w, h;
     font_cache_t *cur_font;

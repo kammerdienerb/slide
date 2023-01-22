@@ -881,6 +881,7 @@ static void do_line(pres_t *pres, build_ctx_t *ctx, char *line) {
     int            line_len;
     array_t        words;
     char         **word;
+    int            esc;
     int            is_beg_or_end;
     char          *line_copy;
     macro_map_it   it;
@@ -908,7 +909,8 @@ docmd:;
                 do_command(pres, ctx, words);
             }
         } else {
-            do_para(pres, ctx, line, line_len);
+            esc = line[0] == '\\';
+            do_para(pres, ctx, line + esc, line_len - esc);
         }
     } else {
         if (line[0] == ':') {

@@ -83,11 +83,21 @@ out:;
 }
 
 static void pdf_new_page(pdf_t *pdf) {
-    pdf->cur_page = HPDF_AddPage(pdf->doc);
+    float width;
+    float ratio;
 
+    pdf->cur_page = HPDF_AddPage(pdf->doc);
     HPDF_Page_SetSize(pdf->cur_page, HPDF_PAGE_SIZE_A4, HPDF_PAGE_PORTRAIT);
-    HPDF_Page_SetWidth(pdf->cur_page,  pdf->pres->w);
-    HPDF_Page_SetHeight(pdf->cur_page, pdf->pres->h);
+
+    width = HPDF_Page_GetWidth(pdf->cur_page);
+    ratio = width / ((pdf->pres->w < pdf->pres->h)
+                        ? pdf->pres->w
+                        : pdf->pres->h);
+
+    HPDF_Page_SetWidth(pdf->cur_page,  pdf->pres->w * ratio);
+    HPDF_Page_SetHeight(pdf->cur_page, pdf->pres->h * ratio);
+    HPDF_Page_Concat(pdf->cur_page, ratio, 0, 0, ratio, 0, 0);
+
     HPDF_Page_SetRGBFill(pdf->cur_page, pdf->pres->r / 255.0, pdf->pres->g / 255.0, pdf->pres->b / 255.0);
     HPDF_Page_Rectangle(pdf->cur_page, 0, 0, pdf->pres->w, pdf->pres->h);
     HPDF_Page_ClosePathFillStroke(pdf->cur_page);
@@ -118,9 +128,6 @@ static void pdf_para(pdf_t *pdf, pres_elem_t *elem) {
     pres = pdf->pres;
 
     font = pres_get_elem_font(pres, elem);
-
-    HPDF_Page_BeginText(pdf->cur_page);
-    HPDF_Page_SetTextRenderingMode(pdf->cur_page, HPDF_FILL);
 
     underline_line_height = font->line_height;
 
@@ -191,27 +198,20 @@ static void pdf_para(pdf_t *pdf, pres_elem_t *elem) {
                 }
             }
 
+            HPDF_Page_BeginText(pdf->cur_page);
+            HPDF_Page_SetTextRenderingMode(pdf->cur_page, HPDF_FILL);
             HPDF_Page_TextOut(pdf->cur_page, pres->draw_x, pres->h - pres->draw_y, c);
+            HPDF_Page_EndText(pdf->cur_page);
 
             if (eit->flags & PRES_UNDERLINE) {
-#if 0
-                SDL_SetRenderDrawColor(pres->sdl_ren,
-                                        elem->r,
-                                        elem->g,
-                                        elem->b,
-                                        255);
-                urect.x = elem_start_x;
-                urect.y = pres->draw_y;
-                urect.w = pres->draw_x - elem_start_x + entry->pen_advance_x;
-                urect.h = 0.025 * underline_line_height;
-                urect.y += urect.h;
-                SDL_RenderFillRect(pres->sdl_ren, &urect);
-                SDL_SetRenderDrawColor(pres->sdl_ren,
-                                        pres->r,
-                                        pres->g,
-                                        pres->b,
-                                        255);
-#endif
+                HPDF_Page_SetRGBStroke(pdf->cur_page, eit->r / 255.0, eit->g / 255.0, eit->b / 255.0);
+                HPDF_Page_SetRGBFill(pdf->cur_page, eit->r / 255.0, eit->g / 255.0, eit->b / 255.0);
+                HPDF_Page_Rectangle(pdf->cur_page,
+                                    elem_start_x,
+                                    pres->h - pres->draw_y - 0.025 * underline_line_height,
+                                    pres->draw_x - elem_start_x + entry->pen_advance_x,
+                                    0.025 * underline_line_height);
+                HPDF_Page_ClosePathFillStroke(pdf->cur_page);
             }
 
             if (!wrapped) {
@@ -225,7 +225,7 @@ static void pdf_para(pdf_t *pdf, pres_elem_t *elem) {
         }
     }
 
-    HPDF_Page_EndText(pdf->cur_page);
+/*     HPDF_Page_EndText(pdf->cur_page); */
 
     pres->is_translating = 0;
 }
@@ -454,7 +454,7 @@ void export_to_pdf(pres_t *pres, const char *path) {
         ERR("pdf: cannot create PDF doc object\n");
     }
 
-    HPDF_SetCompressionMode (pdf.doc, HPDF_COMP_ALL);
+    HPDF_SetCompressionMode(pdf.doc, HPDF_COMP_ALL);
     HPDF_SetPageMode(pdf.doc, HPDF_PAGE_MODE_USE_THUMBS);
     HPDF_UseUTFEncodings(pdf.doc);
 

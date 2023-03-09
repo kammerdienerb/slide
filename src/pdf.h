@@ -4,6 +4,6 @@
 #include "internal.h"
 #include "presentation.h"
 
-void export_to_pdf(SDL_Renderer *sdl_ren, pres_t *pres, const char *path, float quality);
+void export_to_pdf(pres_t *pres, const char *path);
 
 #endif

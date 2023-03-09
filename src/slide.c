@@ -187,7 +187,7 @@ int main(int argc, char **argv) {
 
     printf("pid = %d\n", getpid());
 
-    if (!options.check) {
+    if (!options.check && !options.to_pdf) {
         TIME_ON(init_video) {
             init_video();
         } TIME_OFF(init_video);
@@ -199,30 +199,32 @@ int main(int argc, char **argv) {
 
     TIME_ON(build_presentation) {
         pres = build_presentation(pres_path, sdl_ren);
-        if (!options.check) {
-            update_window_resolution(&pres);
-            SDL_SetWindowSize(sdl_win, pres.w, pres.h);
-        }
     } TIME_OFF(build_presentation);
+
+    if (options.to_pdf) {
+        pres.speed = INFINITY;
+        do_pdf_export();
+        return 0;
+    }
+
+    if (!options.check) {
+        update_window_resolution(&pres);
+        SDL_SetWindowSize(sdl_win, pres.w, pres.h);
+    }
 
     if (options.check) { return 0; }
 
-    if (options.to_pdf) {
-        do_pdf_export();
-    } else {
-        register_hup_handler();
-        do_present();
-    }
-
+    register_hup_handler();
+    do_present();
     fini_video();
 
     return 0;
 }
 
 void do_pdf_export(void) {
-    SDL_ShowWindow(sdl_win);
-
-    export_to_pdf(sdl_ren, &pres, options.to_pdf_name, options.pdf_quality);
+    TIME_ON(export_to_pdf) {
+        export_to_pdf(&pres, options.to_pdf_name);
+    } TIME_OFF(export_to_pdf);
 }
 
 static void draw_grid(void) {

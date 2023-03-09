@@ -22,11 +22,13 @@ typedef tree(char_code_t, font_entry_t)    font_entry_map_t;
 typedef tree_it(char_code_t, font_entry_t) font_entry_map_it;
 
 typedef struct {
-    FT_Face          ft_face;
-    texture_ptr_t    ascii_texture;
-    font_entry_t     ascii_entries[256];
-    font_entry_map_t non_ascii_entry_map;
-    u32              line_height;
+    FT_Face           ft_face;
+    texture_ptr_t     ascii_texture;
+    font_entry_t      ascii_entries[256];
+    font_entry_map_t  non_ascii_entry_map;
+    u32               line_height;
+    u32               size;
+    const char       *path;
 } font_cache_t;
 
 use_tree(font_name_t, font_cache_t);

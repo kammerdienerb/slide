@@ -44,6 +44,8 @@ font_cache_t *get_or_load_font(const char *name, u32 size, SDL_Renderer *sdl_ren
         return &tree_it_val(it);
     }
 
+    cache.path                = strdup(name);
+    cache.size                = size;
     cache.non_ascii_entry_map = tree_make(char_code_t, font_entry_t);
 
     err = FT_New_Face(ft_lib, name, 0, &cache.ft_face);
@@ -85,10 +87,12 @@ font_cache_t *get_or_load_font(const char *name, u32 size, SDL_Renderer *sdl_ren
     cache.line_height = max_h;
 
     /* Create the pixel buffer and texture. */
-    pixels = (u32*)malloc(sizeof(u32) * num_pixels);
-    memset(pixels, 0, sizeof(u32) * num_pixels);
-    cache.ascii_texture = SDL_CreateTexture(sdl_ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STATIC, rect.w, rect.h);
-    SDL_SetTextureBlendMode(cache.ascii_texture, SDL_BLENDMODE_BLEND);
+    if (sdl_ren != NULL) {
+        pixels = (u32*)malloc(sizeof(u32) * num_pixels);
+        memset(pixels, 0, sizeof(u32) * num_pixels);
+        cache.ascii_texture = SDL_CreateTexture(sdl_ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STATIC, rect.w, rect.h);
+        SDL_SetTextureBlendMode(cache.ascii_texture, SDL_BLENDMODE_BLEND);
+    }
 
     /* Draw each char into the pixel buffer. */
     /* Set entry values. */
@@ -116,12 +120,14 @@ font_cache_t *get_or_load_font(const char *name, u32 size, SDL_Renderer *sdl_ren
 
 #define P() (((i * max_h + k) * rect.w) + (j * max_w) + l)
 
-            for (k = 0; k < b.rows; k += 1) {
-                for (l = 0; l < b.width; l += 1) {
-                    m = k * b.width + l;
-                    r = b.buffer[m];
-                    p = P();
-                    pixels[p] = 0xFFFFFF00 | r;
+            if (sdl_ren != NULL) {
+                for (k = 0; k < b.rows; k += 1) {
+                    for (l = 0; l < b.width; l += 1) {
+                        m = k * b.width + l;
+                        r = b.buffer[m];
+                        p = P();
+                        pixels[p] = 0xFFFFFF00 | r;
+                    }
                 }
             }
 
@@ -129,8 +135,10 @@ font_cache_t *get_or_load_font(const char *name, u32 size, SDL_Renderer *sdl_ren
         }
     }
 
-    SDL_UpdateTexture(cache.ascii_texture, &rect, pixels, sizeof(u32) * rect.w);
-    free(pixels);
+    if (sdl_ren != NULL) {
+        SDL_UpdateTexture(cache.ascii_texture, &rect, pixels, sizeof(u32) * rect.w);
+        free(pixels);
+    }
 
     it = tree_insert(font_map, strdup(lookup_buff), cache);
 
@@ -168,10 +176,12 @@ font_entry_t *get_glyph(font_cache_t *font, char_code_t ch, SDL_Renderer *sdl_re
     rect.w = b.width;
     rect.h = b.rows;
 
-    pixels = (u32*)malloc(sizeof(u32) * num_pixels);
-    memset(pixels, 0, sizeof(u32) * num_pixels);
-    entry.texture = SDL_CreateTexture(sdl_ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STATIC, rect.w, rect.h);
-    SDL_SetTextureBlendMode(entry.texture, SDL_BLENDMODE_BLEND);
+    if (sdl_ren != NULL) {
+        pixels = (u32*)malloc(sizeof(u32) * num_pixels);
+        memset(pixels, 0, sizeof(u32) * num_pixels);
+        entry.texture = SDL_CreateTexture(sdl_ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STATIC, rect.w, rect.h);
+        SDL_SetTextureBlendMode(entry.texture, SDL_BLENDMODE_BLEND);
+    }
 
     entry.x             = rect.x;
     entry.y             = rect.y;
@@ -183,16 +193,20 @@ font_entry_t *get_glyph(font_cache_t *font, char_code_t ch, SDL_Renderer *sdl_re
     entry.pen_advance_y = g->advance.y >> 6;
 
 
-    for (i = 0; i < b.rows; i += 1) {
-        for (j = 0; j < b.width; j += 1) {
-            m         = i * b.width + j;
-            r         = b.buffer[m];
-            pixels[m] = 0xFFFFFF00 | r;
+    if (sdl_ren != NULL) {
+        for (i = 0; i < b.rows; i += 1) {
+            for (j = 0; j < b.width; j += 1) {
+                m         = i * b.width + j;
+                r         = b.buffer[m];
+                pixels[m] = 0xFFFFFF00 | r;
+            }
         }
     }
 
-    SDL_UpdateTexture(entry.texture, &rect, pixels, sizeof(u32) * rect.w);
-    free(pixels);
+    if (sdl_ren != NULL) {
+        SDL_UpdateTexture(entry.texture, &rect, pixels, sizeof(u32) * rect.w);
+        free(pixels);
+    }
 
     it = tree_insert(font->non_ascii_entry_map, ch, entry);
 

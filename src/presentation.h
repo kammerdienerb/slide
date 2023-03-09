@@ -120,7 +120,10 @@ typedef struct {
 pres_t build_presentation(const char *path, SDL_Renderer *sdl_ren);
 void free_presentation(pres_t *pres);
 char * pres_get_font_name_by_id(pres_t *pres, u32 id);
+font_cache_t * pres_get_elem_font(pres_t *pres, pres_elem_t *elem);
+pres_image_data_t * pres_get_image_data(pres_t *pres, const char *image);
 sdl_texture_t pres_get_image_texture(pres_t *pres, const char *image);
+array_t get_wrap_points(pres_t *pres, const unsigned char *bytes, int l_margin, int r_margin, array_t *line_widths);
 
 void pres_clear_and_draw_bg(pres_t *pres);
 void draw_presentation(pres_t *pres);

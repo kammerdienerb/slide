@@ -187,7 +187,7 @@ static u32 get_or_add_font_by_id(pres_t *pres, char *font) {
     return array_len(pres->fonts) - 1;
 }
 
-static font_cache_t * pres_get_elem_font(pres_t *pres, pres_elem_t *elem) {
+font_cache_t * pres_get_elem_font(pres_t *pres, pres_elem_t *elem) {
     u32 which;
     i32 id;
 
@@ -993,7 +993,7 @@ static void pres_create_image_texture(pres_t *pres, pres_image_data_t *image_dat
     image_data->image_data = NULL;
 }
 
-sdl_texture_t pres_get_image_texture(pres_t *pres, const char *image) {
+pres_image_data_t *pres_get_image_data(pres_t *pres, const char *image) {
     image_map_it       it;
     pres_image_data_t *image_data;
 
@@ -1002,17 +1002,29 @@ sdl_texture_t pres_get_image_texture(pres_t *pres, const char *image) {
     if (tree_it_good(it)) {
         image_data = &tree_it_val(it);
 
-        if (image_data->texture == NULL) {
+        if (image_data->texture == NULL && pres->sdl_ren) {
             pres_create_image_texture(pres, image_data);
         }
 
+        return image_data;
+    }
+
+    return NULL;
+}
+
+sdl_texture_t pres_get_image_texture(pres_t *pres, const char *image) {
+    pres_image_data_t *image_data;
+
+    image_data = pres_get_image_data(pres, image);
+
+    if (image_data != NULL) {
         return image_data->texture;
     }
 
     return NULL;
 }
 
-static array_t get_wrap_points(pres_t *pres, const unsigned char *bytes, int l_margin, int r_margin, array_t *line_widths) {
+array_t get_wrap_points(pres_t *pres, const unsigned char *bytes, int l_margin, int r_margin, array_t *line_widths) {
     int           len;
     array_t       wrap_points;
     int           total_width;
@@ -1645,7 +1657,7 @@ static void draw_restore(pres_t *pres, pres_elem_t *elem) {
     mark_map_it it;
     int         dst;
 
-    dst = 0.0;
+    dst = 0;
     it  = tree_lookup(pres->marks, elem->mark_name);
     if (tree_it_good(it)) {
         dst = tree_it_val(it);

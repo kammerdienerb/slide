@@ -12,7 +12,7 @@ FT_LDFLAGS=$(pkg-config --libs freetype2)
 SDL_CFLAGS=$(pkg-config --cflags sdl2)
 SDL_LDFLAGS=$(pkg-config --libs sdl2)
 HPDF_CFLAGS="-Ilibharu/build/include -Ilibharu/include"
-HPDF_LDFLAGS="-Llibharu/build/src -lhpdf"
+HPDF_LDFLAGS="-Llibharu/build/src -lhpdf -lz -lpng"
 
 CFLAGS="-Wall -I src ${FT_CFLAGS} ${SDL_CFLAGS} ${HPDF_CFLAGS}"
 LDFLAGS="${FT_LDFLAGS} ${SDL_LDFLAGS} ${HPDF_LDFLAGS} -lm -lpthread"

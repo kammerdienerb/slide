@@ -202,6 +202,7 @@ int main(int argc, char **argv) {
     } TIME_OFF(build_presentation);
 
     if (options.to_pdf) {
+        pres.speed = INFINITY;
         do_pdf_export();
         return 0;
     }
@@ -221,7 +222,9 @@ int main(int argc, char **argv) {
 }
 
 void do_pdf_export(void) {
-    export_to_pdf(&pres, options.to_pdf_name);
+    TIME_ON(export_to_pdf) {
+        export_to_pdf(&pres, options.to_pdf_name);
+    } TIME_OFF(export_to_pdf);
 }
 
 static void draw_grid(void) {

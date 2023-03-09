@@ -1,3 +1,4 @@
 src/*.o
 slide
 slide.dSYM
+.DS_Store
